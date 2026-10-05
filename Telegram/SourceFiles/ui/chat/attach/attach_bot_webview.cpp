@@ -2091,7 +2091,7 @@ void Panel::showPopup(
 				done(std::move(result));
 			}
 		},
-		false);
+		true);
 }
 
 void Panel::createWebviewBottom() {
@@ -2532,7 +2532,7 @@ bool Panel::createWebview(const Webview::ThemeParams &params) {
 					}
 					done(std::move(result));
 				},
-				false);
+				true);
 			return true;
 		});
 	} else {

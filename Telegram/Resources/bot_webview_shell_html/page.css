@@ -623,7 +623,6 @@ button.menu-download .ripple .inner {
 	position: absolute;
 	inset: 0;
 	display: none;
-	background: rgba(0, 0, 0, 0.12);
 	z-index: 20;
 }
 #root.blocked #blocker {

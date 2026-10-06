@@ -4792,7 +4792,7 @@ void Widget::updateControlsGeometry() {
 				: 0);
 		const auto scrollHeight = std::max(
 			height() - scrollTop - bottomSkip,
-			0);
+			0.);
 		const auto wasScrollHeight = _scroll->height();
 		_scroll->setGeometry(0, scrollTop, scrollWidth, scrollHeight);
 		if (_chatsFilterSlideCanvas) {

@@ -1134,7 +1134,7 @@ void PaintRowBackground(
 		p.save();
 		p.setOpacity(p.opacity() * st::dialogsReferenceSeparatorOpacity);
 		p.fillRect(
-			rtlrect(
+			style::rtlrect(
 				geometry.x() + context.st->nameLeft,
 				geometry.y() + geometry.height() - st::lineWidth,
 				std::max(

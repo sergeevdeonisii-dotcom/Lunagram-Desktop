@@ -227,6 +227,9 @@ Check ($queueChrome -match '_referenceChromeUpdateScheduled' -and $queueChrome -
 Check ($queueChrome -match '^\s*if \(Core::Quitting\(\)\s*\|\| _referenceChromeUpdateScheduled\) \{\s*return;\s*\}') 'Caption update rejects shutdown before reading the coalescing member or enqueueing work'
 $queuedChromeCallback = Block-Source $queueChrome 'InvokeQueued\(this, \[=\] \{' 'Queued reference chrome callback'
 Check ($queuedChromeCallback -match '^\s*if \(Core::Quitting\(\)\) \{\s*return;\s*\}\s*_referenceChromeUpdateScheduled = false;') 'Queued caption callback rejects shutdown before touching MainWindow members'
+$preservesCaptionBody = $queuedChromeCallback -match 'const auto bodyGeometry = body\(\)->mapToGlobal\(body\(\)->rect\(\)\);[\s\S]*refreshTitleWidget\(\);[\s\S]*recountGeometryConstraints\(\);[\s\S]*setGeometry\(bodyGeometry\);'
+Check $preservesCaptionBody 'Caption transitions restore body geometry after applying the new frame and minimum size'
+Check ($queuedChromeCallback -match 'const auto normal = \(windowState\(\) == Qt::WindowNoState\);' -and $queuedChromeCallback -match 'if \(normal\s*&& windowState\(\) == Qt::WindowNoState\s*&& margins != frameMargins\(\)\)') 'Caption geometry correction applies only to changed frames in a stable normal window'
 foreach ($quittingAtQueue in @($false, $true)) {
     foreach ($alreadyScheduled in @($false, $true)) {
         foreach ($quittingAtCallback in @($false, $true)) {
@@ -449,6 +452,22 @@ foreach ($titlePadding in @(0, 1, 2, 16, 32)) {
         $wrappedHeight += $titlePadding
         Check ($rawNormal.W -eq 834 -and $rawNormal.H -eq 682) "Raw geometry restore model preserves size with title padding${titlePadding}: cycle$cycle"
         Check ($wrappedHeight -eq 682 + $cycle * $titlePadding) "Body-wrapper witness reproduces cumulative title padding${titlePadding}: cycle$cycle"
+    }
+}
+foreach ($scale in @(75,100,125,150,200)) {
+    $nativeTitleHeight = Scale-Pixels 24 $scale
+    $bodyY = 142
+    $bodyHeight = 706
+    foreach ($restart in 1..10) {
+        $rawY = $bodyY - $nativeTitleHeight - 1
+        $rawHeight = $bodyHeight + $nativeTitleHeight + 1
+        if ($preservesCaptionBody) {
+            $rawY = $bodyY - 1
+            $rawHeight = $bodyHeight + 1
+        }
+        $bodyY = $rawY + 1
+        $bodyHeight = $rawHeight - 1
+        Check ($bodyY -eq 142 -and $bodyHeight -eq 706) "Startup title replacement keeps saved body position and height: $scale%/restart$restart"
     }
 }
 foreach ($area in @(@(1,1,1.0), @(1280,871,1.0), @(3840,2160,2.0), @(7680,4320,4.0))) {

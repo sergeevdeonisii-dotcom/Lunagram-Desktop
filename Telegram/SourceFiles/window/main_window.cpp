@@ -752,8 +752,16 @@ void MainWindow::queueReferenceChromeUpdate() {
 			return;
 		}
 		_referenceChromeUpdateScheduled = false;
+		const auto normal = (windowState() == Qt::WindowNoState);
+		const auto margins = frameMargins();
+		const auto bodyGeometry = body()->mapToGlobal(body()->rect());
 		refreshTitleWidget();
 		recountGeometryConstraints();
+		if (normal
+			&& windowState() == Qt::WindowNoState
+			&& margins != frameMargins()) {
+			setGeometry(bodyGeometry);
+		}
 	});
 }
 

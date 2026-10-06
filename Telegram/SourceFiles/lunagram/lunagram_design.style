@@ -50,7 +50,7 @@ lunagramGlassRefractionOpacity: 0.16;
 lunagramGlassTintAlpha: 190;
 lunagramGlassContentTintAlpha: 144;
 lunagramGlassSidebarTintAlpha: 212;
-lunagramGlassDarkTintAlpha: 162;
+lunagramGlassDarkTintAlpha: 232;
 lunagramGlassHighlightAlpha: 92;
 lunagramGlassShadeAlpha: 26;
 lunagramGlassHighlightWidth: 1px;

@@ -531,6 +531,13 @@ void ContentBackdropCache::accept(
 }
 
 void PaintGlassEdge(QPainter &p, QRect bounds, int radius) {
+	p.save();
+	const auto shape = PanelShape(bounds, radius);
+	const auto spread = st::lunagramGlassShadowWidth
+		+ st::lunagramGlassShadowOffset;
+	auto outside = QPainterPath();
+	outside.addRect(bounds.adjusted(-spread, -spread, spread, spread));
+	p.setClipPath(outside.subtracted(shape), Qt::IntersectClip);
 	auto shadow = QColor(0, 0, 0, st::lunagramGlassShadowAlpha);
 	p.setPen(QPen(shadow, st::lunagramGlassShadowWidth));
 	p.setBrush(Qt::NoBrush);
@@ -538,6 +545,7 @@ void PaintGlassEdge(QPainter &p, QRect bounds, int radius) {
 		bounds.translated(0, st::lunagramGlassShadowOffset),
 		radius,
 		radius);
+	p.restore();
 	auto highlight = QLinearGradient(bounds.topLeft(), bounds.bottomRight());
 	highlight.setColorAt(
 		0.,
@@ -545,6 +553,7 @@ void PaintGlassEdge(QPainter &p, QRect bounds, int radius) {
 	highlight.setColorAt(0.45, QColor(255, 255, 255, 0));
 	highlight.setColorAt(1., QColor(0, 0, 0, st::lunagramGlassShadeAlpha));
 	p.setPen(QPen(QBrush(highlight), st::lunagramGlassHighlightWidth));
+	p.setBrush(Qt::NoBrush);
 	p.drawRoundedRect(bounds, radius, radius);
 }
 

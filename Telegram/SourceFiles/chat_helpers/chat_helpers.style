@@ -1318,6 +1318,7 @@ lunagramReferenceComposeField: InputField(historyComposeField) {
 	borderFgActive: transparent;
 }
 historyComposeFieldMaxHeight: 224px;
+lunagramReferenceComposeFieldMaxHeight: 240px;
 historyComposeFieldFadeHeight: 6px;
 historySendRight: 2px;
 historySendPadding: 9px;

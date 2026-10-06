@@ -32,6 +32,7 @@ namespace Core {
 namespace {
 
 uint64 InstallationTag = 0;
+QtMessageHandler OriginalMessageHandler = nullptr;
 
 base::options::toggle OptionHighDpiDownscale({
 	.id = kOptionHighDpiDownscale,
@@ -333,6 +334,10 @@ Launcher::Launcher(int argc, char *argv[])
 }
 
 Launcher::~Launcher() {
+	// WHY: Qt and FFmpeg can log during static teardown, after the
+	// launcher's BaseIntegration has gone. Detach their callbacks first.
+	qInstallMessageHandler(OriginalMessageHandler);
+	av_log_set_callback(av_log_default_callback);
 	InstanceSetter::Instance = nullptr;
 }
 
@@ -514,7 +519,6 @@ void Launcher::prepareSettings() {
 }
 
 void Launcher::initQtMessageLogging() {
-	static QtMessageHandler OriginalMessageHandler = nullptr;
 	OriginalMessageHandler = qInstallMessageHandler([](
 			QtMsgType type,
 			const QMessageLogContext &context,

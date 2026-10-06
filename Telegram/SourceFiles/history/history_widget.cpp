@@ -9149,7 +9149,10 @@ int HistoryWidget::computeMaxFieldHeight() const {
 			: 0)
 		- (2 * st::historySendPadding)
 		- st::historyReplyHeight; // at least this height for history.
-	return std::min(st::historyComposeFieldMaxHeight, available);
+	const auto maximum = Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceComposeFieldMaxHeight
+		: st::historyComposeFieldMaxHeight;
+	return std::min(maximum, available);
 }
 
 bool HistoryWidget::cornerButtonsIgnoreVisibility() {

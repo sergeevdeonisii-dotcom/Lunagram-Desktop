@@ -80,7 +80,7 @@ bool UniqueProperties(const QByteArray &payload) {
 		const auto encoded = matches.next().captured(1).toUtf8();
 		const auto decoded = QJsonDocument::fromJson("[\"" + encoded + "\"]");
 		if (!decoded.isArray() || decoded.array().size() != 1
-			|| !names.emplace(decoded.array().front().toString()).second) {
+			|| !names.emplace(decoded.array().at(0).toString()).second) {
 			return false;
 		}
 	}
@@ -302,6 +302,23 @@ void SubmitPin(
 	});
 }
 
+Ui::PasswordInput *AddPinField(
+		not_null<Ui::GenericBox*> box,
+		rpl::producer<QString> placeholder) {
+	const auto &fieldStyle = st::defaultInputField;
+	const auto row = box->addRow(object_ptr<Ui::RpWidget>(box));
+	row->resize(row->width(), fieldStyle.heightMin);
+	const auto field = Ui::CreateChild<Ui::PasswordInput>(
+		row,
+		fieldStyle,
+		std::move(placeholder));
+	row->sizeValue() | rpl::on_next([=](QSize size) {
+		field->resize(size.width(), field->height());
+	}, field->lifetime());
+	field->setMaxLength(64);
+	return field;
+}
+
 void ShowPin(not_null<Window::SessionController*> controller, bool creating) {
 	const auto session = &controller->session();
 	const auto weak = base::make_weak(controller);
@@ -313,20 +330,14 @@ void ShowPin(not_null<Window::SessionController*> controller, bool creating) {
 			box,
 			tr::lng_lunagram_vault_description(),
 			st::boxLabel));
-		const auto field = box->addRow(object_ptr<Ui::PasswordInput>(
+		const auto field = AddPinField(
 			box,
-			st::defaultInputField,
-			tr::lng_lunagram_vault_pin()));
-		field->setMaxLength(64);
+			tr::lng_lunagram_vault_pin());
 		const auto confirm = creating
-			? box->addRow(object_ptr<Ui::PasswordInput>(
+			? AddPinField(
 				box,
-				st::defaultInputField,
-				tr::lng_lunagram_vault_pin_confirm()))
+				tr::lng_lunagram_vault_pin_confirm())
 			: nullptr;
-		if (confirm) {
-			confirm->setMaxLength(64);
-		}
 		box->setFocusCallback([=] { field->setFocusFast(); });
 		box->addButton(creating
 			? tr::lng_settings_save()

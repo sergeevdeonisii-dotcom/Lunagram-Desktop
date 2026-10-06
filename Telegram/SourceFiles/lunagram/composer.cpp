@@ -107,7 +107,7 @@ void PendingSend::start() {
 		.text = tr::lng_lunagram_undo_pending(
 			tr::now,
 			lt_seconds,
-			QString::number(_delay / 1000., 'f', 1),
+			tr::marked(QString::number(_delay / 1000., 'f', 1)),
 			lt_link,
 			tr::link(tr::lng_lunagram_undo_cancel(tr::now)),
 			tr::marked),

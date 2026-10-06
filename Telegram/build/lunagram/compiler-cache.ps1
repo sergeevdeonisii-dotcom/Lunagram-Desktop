@@ -67,7 +67,7 @@ function Invoke-CacheProbe([string] $Tool, [string] $Root, [string] $Expected) {
     if ($object -notmatch 'including file:.*after.h') { throw 'Cached compilation did not preserve Ninja include dependencies.' }
     $link = Invoke-CacheCommand 'link.exe' @('/nologo', '/OUT:probe.exe', 'pch.obj', 'main.obj')
     $actual = Invoke-CacheCommand (Get-CacheChild $Root 'probe.exe') @()
-    if ($actual.Trim() -ne $Expected) { throw 'Compiler cache returned stale executable behavior.' }
+    if ($actual.Trim() -ne $Expected) { throw "Compiler cache returned '$($actual.Trim())' instead of '$Expected'." }
     $timer.Stop()
     return [math]::Round($timer.Elapsed.TotalMilliseconds)
 }
@@ -159,6 +159,7 @@ switch ($Stage) {
             Write-Output "Cache verified: initial hits $initialHits; warm hits $warmHits; source/header invalidation; native link/run. Initial: ${initial}ms; warm: ${warm}ms."
             & $tool --zero-stats
         } catch {
+            $_.Exception.Message | Add-Content -LiteralPath (Join-Path $env:LUNAGRAM_DIAGNOSTICS 'compiler-cache-error.txt') -Encoding utf8
             Write-Warning 'Compiler cache was not enabled: compatibility probe failed. The normal PCH build remains available.'
             if ($Required) { throw }
         } finally {

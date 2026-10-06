@@ -59,6 +59,21 @@ constexpr auto kIntKeys = std::array{
 	"rating_level", "rating_progress", "anonymous_price",
 };
 
+struct ComposerPreference {
+	const char *name = nullptr;
+	int minimum = 0;
+	int maximum = 0;
+	int fallback = 0;
+};
+
+constexpr auto kComposerPreferences = std::array{
+	ComposerPreference{ "formatting", 0, 6, 0 },
+	ComposerPreference{ "undo_delay", 0, 5000, 0 },
+	ComposerPreference{ "typing_mode", 0, 2, 0 },
+	ComposerPreference{ "typing_speed", 0, 2, 1 },
+	ComposerPreference{ "glass_opacity", 35, 95, 75 },
+};
+
 struct Profiles {
 	QJsonObject snapshots;
 	QString active;
@@ -82,8 +97,25 @@ bool ValidInteger(const QJsonValue &value, int minimum, int maximum) {
 }
 
 bool ValidValues(const QJsonObject &values) {
-	if (values.size() != kFlagKeys.size() + kIntKeys.size() + 1) {
+	const auto legacySize = kFlagKeys.size() + kIntKeys.size() + 1;
+	if (values.size() < legacySize
+		|| values.size() > legacySize + kComposerPreferences.size()) {
 		return false;
+	}
+	for (const auto &name : values.keys()) {
+		const auto known = (name == u"anonymous_number"_q)
+			|| ranges::any_of(kFlagKeys, [&](const auto &entry) {
+				return name == Key(entry.first);
+			})
+			|| ranges::any_of(kIntKeys, [&](const char *entry) {
+				return name == Key(entry);
+			})
+			|| ranges::any_of(kComposerPreferences, [&](const auto &entry) {
+				return name == Key(entry.name);
+			});
+		if (!known) {
+			return false;
+		}
 	}
 	for (const auto &[name, flag] : kFlagKeys) {
 		if (!values.value(Key(name)).isBool()) {
@@ -93,6 +125,17 @@ bool ValidValues(const QJsonObject &values) {
 	if (!ValidInteger(values.value(u"rating_level"_q), 1, 100)
 		|| !ValidInteger(values.value(u"rating_progress"_q), 1, 999)
 		|| !ValidInteger(values.value(u"anonymous_price"_q), 1000, 10000)) {
+		return false;
+	}
+	for (const auto &preference : kComposerPreferences) {
+		const auto key = Key(preference.name);
+		if (values.contains(key)
+			&& !ValidInteger(values.value(key), preference.minimum, preference.maximum)) {
+			return false;
+		}
+	}
+	const auto undo = values.value(u"undo_delay"_q).toInt();
+	if (undo != 0 && undo < 400) {
 		return false;
 	}
 	const auto digits = values.value(u"anonymous_number"_q);
@@ -119,6 +162,16 @@ QJsonObject CaptureValues(not_null<Main::Session*> session) {
 		1000,
 		10000));
 	result.insert(u"anonymous_number"_q, LocalAnonymousNumber(session).mid(3));
+	for (const auto &preference : kComposerPreferences) {
+		auto value = std::clamp(
+			IntValue(session, preference.name, preference.fallback),
+			preference.minimum,
+			preference.maximum);
+		if (Key(preference.name) == u"undo_delay"_q && value != 0) {
+			value = std::max(value, 400);
+		}
+		result.insert(Key(preference.name), value);
+	}
 	return result;
 }
 
@@ -129,6 +182,12 @@ void ApplyValues(not_null<Main::Session*> session, const QJsonObject &values) {
 	}
 	for (const auto name : kIntKeys) {
 		SetIntValue(session, name, values.value(Key(name)).toInt());
+	}
+	for (const auto &preference : kComposerPreferences) {
+		SetIntValue(
+			session,
+			preference.name,
+			values.value(Key(preference.name)).toInt(preference.fallback));
 	}
 	SetStringValue(
 		session,

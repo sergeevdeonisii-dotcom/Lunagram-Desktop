@@ -125,6 +125,27 @@ try {
             }
         }
         'Build' {
+            $allTargets = @(& ninja -C out -f build-Debug.ninja -t targets all)
+            if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate native object targets.' }
+            $changedSources = @(git diff --name-only fb2e33209517e1a34637d837bfadb3783f2fd59c HEAD -- Telegram/SourceFiles |
+                Where-Object { $_.EndsWith('.cpp') } | ForEach-Object { $_.Substring('Telegram/'.Length) + '.obj' })
+            if ($LASTEXITCODE -ne 0) { throw 'Could not list changed native sources.' }
+            $objectTargets = @(foreach ($entry in $allTargets) {
+                $separator = $entry.LastIndexOf(': ')
+                if ($separator -lt 0) { continue }
+                $target = $entry.Substring(0, $separator)
+                $normalized = $target.Replace([char] '\', [char] '/')
+                foreach ($source in $changedSources) {
+                    if ($normalized.EndsWith($source, [StringComparison]::Ordinal)) {
+                        $target
+                        break
+                    }
+                }
+            })
+            if (-not $objectTargets.Count) { throw 'Changed native object targets were not found.' }
+            Write-Host "Checking $($objectTargets.Count) changed native object targets before linking the full application."
+            $preflightArguments = @('-C', 'out', '-f', 'build-Debug.ninja', '-k', '0', '-j', '2') + $objectTargets
+            Invoke-BuildCommand 'ninja' $preflightArguments
             Invoke-BuildCommand 'cmake' @('--build', 'out', '--config', 'Debug', '--target', 'Telegram', '--parallel', '2')
         }
         'Smoke' {

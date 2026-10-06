@@ -296,6 +296,11 @@ if ($hasCodec) {
 }
 Check ($privateStore -match 'QSaveFile\(path\)' -and $privateStore -match '!Read\(path, entropy\).has_value\(\)' -and $privateStore -match 'Lunagram/1/%1/%2') 'Private storage atomic-save/account entropy source invariants'
 $automaticMedia = Read-Source 'Telegram/SourceFiles/data/data_auto_download.cpp'
+$toolsSource = Read-Source 'Telegram/SourceFiles/lunagram/local_tools.cpp'
+foreach ($name in @('formatting', 'undo_delay', 'typing_mode', 'typing_speed', 'glass_opacity')) {
+    Check ($toolsSource -match ('ComposerPreference\{ "' + $name + '"')) "Profiles/export include composer preference: $name"
+}
+Check ($toolsSource -match 'values\.size\(\) < legacySize' -and $toolsSource -match 'toInt\(preference\.fallback\)') 'Legacy settings snapshots use validated composer defaults'
 $lowMediaGuard = 'if\s*\(Lunagram::Enabled\(&(?:document|photo)->session\(\), Lunagram::Flag::Emergency\)\)\s*\{\s*return false;\s*\}'
 Check ([regex]::Matches($automaticMedia, $lowMediaGuard).Count -eq 6) 'Reduced-media source guards cover six automatic download/play decisions'
 

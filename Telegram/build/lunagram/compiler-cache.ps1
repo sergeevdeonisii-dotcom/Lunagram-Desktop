@@ -102,7 +102,7 @@ switch ($Stage) {
         foreach ($item in @{
             BUILDCACHE_DIR = $cacheRoot
             BUILDCACHE_ACCURACY = 'STRICT'
-            BUILDCACHE_DIRECT_MODE = 'true'
+            BUILDCACHE_DIRECT_MODE = 'false'
             BUILDCACHE_COMPRESS = 'true'
             BUILDCACHE_COMPRESS_FORMAT = 'ZSTD'
             BUILDCACHE_COMPRESS_LEVEL = '3'

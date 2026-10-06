@@ -471,6 +471,8 @@ QPixmap Sticker::paintedPixmap(const PaintContext &context) const {
 		: nullptr;
 	const auto good = _sensitiveBlurred
 		? nullptr
+		: context.backdrop
+		? _dataMedia->goodThumbnailCached()
 		: _dataMedia->goodThumbnail();
 	const auto image = _sensitiveBlurred
 		? nullptr

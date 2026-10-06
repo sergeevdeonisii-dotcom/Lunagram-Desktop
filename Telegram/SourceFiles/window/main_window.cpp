@@ -742,11 +742,15 @@ void MainWindow::setReferenceCaptionArea(
 }
 
 void MainWindow::queueReferenceChromeUpdate() {
-	if (_referenceChromeUpdateScheduled) {
+	if (Core::Quitting()
+		|| _referenceChromeUpdateScheduled) {
 		return;
 	}
 	_referenceChromeUpdateScheduled = true;
 	InvokeQueued(this, [=] {
+		if (Core::Quitting()) {
+			return;
+		}
 		_referenceChromeUpdateScheduled = false;
 		refreshTitleWidget();
 		recountGeometryConstraints();

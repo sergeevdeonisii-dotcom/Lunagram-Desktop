@@ -67,7 +67,7 @@ private:
 	QSize countCurrentSize(int newWidth) override;
 
 	[[nodiscard]] bool checkGoodThumbnail() const;
-	void validateThumbnail() const;
+	void validateThumbnail(bool backdrop) const;
 	void prepareThumbnailFrom(not_null<Image*> image, int good) const;
 	void generateThumbnail() const;
 	void ensureDataMediaCreated() const;

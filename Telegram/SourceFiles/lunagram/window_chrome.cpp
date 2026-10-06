@@ -340,7 +340,7 @@ void WindowChrome::handleWindowStateChange() {
 		}
 		if (_window->windowState() == Qt::WindowNoState
 			&& captionSourceShown()) {
-			_window->setGeometry(QRect(
+			_window->QWidget::setGeometry(QRect(
 				_window->geometry().topLeft(),
 				_normalGeometry.size()));
 		}

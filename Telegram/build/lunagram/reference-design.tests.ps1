@@ -219,9 +219,48 @@ foreach ($event in @('Show', 'Hide', 'ShowToParent', 'HideToParent', 'ParentChan
 Check ($observeSource -match 'QObject::destroyed' -and $observeSource -match 'removeEventFilter\(filter\)' -and $observeSource -match 'filter->deleteLater\(\)' -and $observeSource -match 'QObject::disconnect\(destroyed\)') 'Caption observer cleanup detaches filters and destruction callbacks'
 $queueChrome = Block-Source $window 'void MainWindow::queueReferenceChromeUpdate\(\)\s*\{' 'MainWindow::queueReferenceChromeUpdate'
 Check ($queueChrome -match '_referenceChromeUpdateScheduled' -and $queueChrome -match 'InvokeQueued\(this,' -and $queueChrome -match 'refreshTitleWidget\(\)' -and $queueChrome -match 'recountGeometryConstraints\(\)') 'Caption frame changes are coalesced until the current layout event completes'
+Check ($queueChrome -match '^\s*if \(Core::Quitting\(\)\s*\|\| _referenceChromeUpdateScheduled\) \{\s*return;\s*\}') 'Caption update rejects shutdown before reading the coalescing member or enqueueing work'
+$queuedChromeCallback = Block-Source $queueChrome 'InvokeQueued\(this, \[=\] \{' 'Queued reference chrome callback'
+Check ($queuedChromeCallback -match '^\s*if \(Core::Quitting\(\)\) \{\s*return;\s*\}\s*_referenceChromeUpdateScheduled = false;') 'Queued caption callback rejects shutdown before touching MainWindow members'
+foreach ($quittingAtQueue in @($false, $true)) {
+    foreach ($alreadyScheduled in @($false, $true)) {
+        foreach ($quittingAtCallback in @($false, $true)) {
+            $queueState = [pscustomobject]@{ Scheduled = $alreadyScheduled; QueueTouches = 0; CallbackTouches = 0; FrameUpdates = 0 }
+            $enqueue = -not ($quittingAtQueue -or (& {
+                $queueState.QueueTouches += 1
+                return $queueState.Scheduled
+            }))
+            if ($enqueue) {
+                $queueState.Scheduled = $true
+                & {
+                    if ($quittingAtCallback) { return }
+                    $queueState.CallbackTouches += 1
+                    $queueState.Scheduled = $false
+                    $queueState.FrameUpdates += 1
+                }
+            }
+            Check ($enqueue -eq (-not $quittingAtQueue -and -not $alreadyScheduled)) "Caption queue preserves normal coalescing and shutdown rejection: $quittingAtQueue/$alreadyScheduled/$quittingAtCallback"
+            Check (-not $quittingAtQueue -or $queueState.QueueTouches -eq 0) "Shutdown short-circuit never reads MainWindow queue state: $quittingAtQueue/$alreadyScheduled/$quittingAtCallback"
+            Check (-not $quittingAtCallback -or $queueState.CallbackTouches -eq 0) "Shutdown callback never touches MainWindow state: $quittingAtQueue/$alreadyScheduled/$quittingAtCallback"
+            Check ($queueState.FrameUpdates -eq [int]($enqueue -and -not $quittingAtCallback)) "Only live queued caption updates change the native frame: $quittingAtQueue/$alreadyScheduled/$quittingAtCallback"
+        }
+    }
+}
 Check ($designStyle -notmatch 'WindowTitle\(defaultWindowTitle\)' -and $window -match 'ReferenceWindowTitle\(\)' -and $window -match 'st::lunagramReferenceTitleHeight') 'Zero-height title uses a persistent native style copy, not cross-module unnamed-icon inheritance'
 $buildHelper = Read-Source 'Telegram/build/lunagram/windows-debug.ps1'
 Check ($buildHelper.IndexOf("'td_ui_styles'") -ge 0 -and $buildHelper.IndexOf("'td_ui_styles'") -lt $buildHelper.IndexOf('$allTargets =')) 'Native style generation fails fast before independent object compilation'
+
+$mainMenu = Read-Source 'Telegram/SourceFiles/window/window_main_menu.cpp'
+$mainMenuStyle = Read-Source 'Telegram/SourceFiles/window/window_main_menu.style'
+$mainMenuCaptionSkip = Block-Source $mainMenu 'int MainMenuCaptionSkip\(\)\s*\{' 'MainMenuCaptionSkip'
+$mainMenuCoverHeight = Block-Source $mainMenu 'int MainMenuCoverHeight\(\)\s*\{' 'MainMenuCoverHeight'
+$mainMenuGeometry = Block-Source $mainMenu 'void MainMenu::updateControlsGeometry\(\)\s*\{' 'MainMenu::updateControlsGeometry'
+Check ($mainMenu -match '#include "styles/style_lunagram_design.h"' -and $mainMenuCaptionSkip -match 'Lunagram::ReferenceDesignEnabled\(\)\s*\? st::lunagramReferenceCaptionHeight\s*: 0;') 'Drawer caption clearance uses the scaled reference height with a zero native fallback'
+Check ($mainMenuCoverHeight -match 'return st::mainMenuCoverHeight \+ MainMenuCaptionSkip\(\);') 'Drawer cover extends by exactly the reference caption clearance'
+Check ($mainMenuGeometry -match 'st::mainMenuUserpicTop \+ captionSkip' -and $mainMenuGeometry -match 'st::mainMenuCoverStatusTop \+ captionSkip' -and $mainMenuGeometry -match '_resetScaleButton->moveToRight\(0, captionSkip\)' -and $mainMenuGeometry -match 'st::mainMenuCoverNameTop \+ captionSkip') 'Drawer avatar, status and header actions shift together below traffic lights'
+Check ($mainMenuGeometry -match 'st::mainMenuCoverHeight - st::mainMenuCoverNameTop' -and $mainMenuGeometry -match 'MainMenuCoverHeight\(\) - st::lineWidth' -and $mainMenuGeometry -match '_scroll->setGeometry\(0, top, width\(\), height\(\) - top\)') 'Drawer preserves the account-toggle hit height and moves the native scroll viewport below the extended cover'
+Check ($mainMenu -match 'height\(\) - MainMenuCoverHeight\(\) - contentHeight' -and $mainMenu -match 'shadow->setGeometry\(0, MainMenuCoverHeight\(\) - line, width, line\)' -and $mainMenu -match 'snowRaw->setGeometry\(0, 0, width, MainMenuCoverHeight\(\)\)' -and $mainMenu -match 'const auto cover = QRect\(0, 0, width\(\), MainMenuCoverHeight\(\)\)') 'Drawer footer sizing, shadow and optional seasonal paint share the extended header boundary'
+Check ($mainMenu -match 'st::mainMenuCoverNameTop \+ MainMenuCaptionSkip\(\)' -and $mainMenu -match 'st::mainMenuCoverNameTop\s*\+ MainMenuCaptionSkip\(\)\s*\+ st::semiboldFont->height') 'Drawer name and premium badge preserve their alignment after the header shift'
 
 $field = Style-Block $helpersStyle 'lunagramReferenceComposeField'
 $action = Style-Block $helpersStyle 'lunagramReferenceComposeButton'
@@ -242,6 +281,12 @@ $lightSpacing = Pixel-Value $designStyle 'lunagramTrafficLightSpacing'
 $lightLeft = Pixel-Value $designStyle 'lunagramTrafficLightLeft'
 $lightTop = Pixel-Value $designStyle 'lunagramTrafficLightTop'
 $captionSide = Pixel-Value $dialogStyle 'dialogsReferenceCaptionTitleSide'
+$cardInset = Pixel-Value $designStyle 'lunagramReferenceCardInset'
+$mainMenuAvatarTop = Pixel-Value $mainMenuStyle 'mainMenuUserpicTop'
+$mainMenuNativeCover = Pixel-Value $mainMenuStyle 'mainMenuCoverHeight'
+$mainMenuNameTop = Pixel-Value $mainMenuStyle 'mainMenuCoverNameTop'
+$mainMenuStatusTop = Pixel-Value $mainMenuStyle 'mainMenuCoverStatusTop'
+$mainMenuFooterMinimum = Pixel-Value $mainMenuStyle 'mainMenuFooterHeightMin'
 $replyHeight = Pixel-Value $helpersStyle 'historyReplyHeight'
 $attach = Style-Block $helpersStyle 'historyAttach'
 $attachWidth = Pixel-Value $attach 'width'
@@ -341,6 +386,14 @@ $chromeGeometry = Block-Source $chrome 'void WindowChrome::rememberNormalGeometr
 $chromeState = Block-Source $chrome 'void WindowChrome::handleWindowStateChange\(\)\s*\{' 'WindowChrome::handleWindowStateChange'
 Check ($chromeGeometry -match '!_restorePending' -and $chromeGeometry -match '_lastWindowState == Qt::WindowNoState' -and $chromeGeometry -match '_window->windowState\(\) == Qt::WindowNoState') 'Chrome records only stable normal geometry outside a restore correction'
 Check ($chromeState -match 'state == _lastWindowState' -and $chromeState -match 'wasMaximized' -and $chromeState -match 'InvokeQueued\(this' -and $chromeState -match 'serial != _restoreSerial' -and $chromeState -match '_window->geometry\(\).topLeft\(\)' -and $chromeState -match '_normalGeometry.size\(\)') 'Chrome restores the saved client size after native frame correction, preserves drag-restore position and rejects stale work'
+$rawChromeRestore = $chromeState -match '_window->QWidget::setGeometry\(QRect\('
+Check ($rawChromeRestore -and $chromeState -notmatch '_window->setGeometry\(' -and $chromeGeometry -match '_normalGeometry = _window->geometry\(\)') 'Chrome restores raw QWidget geometry without adding RpWindow title padding twice'
+$nativeWindow = Read-Source 'Telegram/lib_ui/ui/platform/win/ui_window_win.cpp'
+$nativeGeometry = Block-Source $nativeWindow 'void WindowHelper::setGeometry\(QRect rect\)\s*\{' 'Windows wrapper body geometry'
+Check ($nativeGeometry -match 'rect.marginsAdded\(\{ 0, titleHeight\(\), 0, 0 \}\)') 'Windows RpWindow geometry setter interprets its input as body geometry'
+$nativeTitle = Read-Source 'Telegram/lib_ui/ui/platform/win/ui_window_title_win.cpp'
+$nativeTitleGeometry = Block-Source $nativeTitle 'void TitleWidget::refreshGeometryWithWidth\(int width\)\s*\{' 'Windows title padding geometry'
+Check ($nativeTitleGeometry -match 'additionalPadding\(\)' -and $nativeTitleGeometry -match '_controls.st\(\)->height \+ add') 'A zero style title height can still have native Windows title padding'
 Check ($chrome -match 'control \|\| menu' -and $chrome -match '_menu->setIsMenuButton\(true\)' -and $chrome -match 'tr::lng_main_menu\(\)') 'The header title exposes the native main menu as a client-area accessible button'
 
 Check ($dialogs -match 'referenceTitleRect\(\).intersected\(caption\)' -and $dialogsPaint -match 'const auto titleRect = referenceTitleRect\(\)' -and $dialogs -match 'crl::guard\(this, \[=\] \{ showMainMenu\(\); \}\)') 'Header menu hit geometry matches the painted title and retains the source lifetime guard'
@@ -380,6 +433,18 @@ foreach ($cycle in 1..20) {
     $normalSize = [pscustomobject]@{ W = $saved.W + 16; H = $saved.H + 16 }
     $normalSize = $saved
     Check ($normalSize.W -eq 802 -and $normalSize.H -eq 626) "Queued restore geometry model does not accumulate native frame deltas: cycle$cycle"
+}
+foreach ($titlePadding in @(0, 1, 2, 16, 32)) {
+    $rawNormal = [pscustomobject]@{ W = 834; H = 682 }
+    $wrappedHeight = $rawNormal.H
+    foreach ($cycle in 1..20) {
+        $savedRawHeight = $rawNormal.H
+        $restoredHeight = if ($rawChromeRestore) { $savedRawHeight } else { $savedRawHeight + $titlePadding }
+        $rawNormal = [pscustomobject]@{ W = $rawNormal.W; H = $restoredHeight }
+        $wrappedHeight += $titlePadding
+        Check ($rawNormal.W -eq 834 -and $rawNormal.H -eq 682) "Raw geometry restore model preserves size with title padding${titlePadding}: cycle$cycle"
+        Check ($wrappedHeight -eq 682 + $cycle * $titlePadding) "Body-wrapper witness reproduces cumulative title padding${titlePadding}: cycle$cycle"
+    }
 }
 foreach ($area in @(@(1,1,1.0), @(1280,871,1.0), @(3840,2160,2.0), @(7680,4320,4.0))) {
     $ratio = [Math]::Min($area[2] / 2.0, [Math]::Sqrt((768 * 1024) / ($area[0] * [double]$area[1])))
@@ -440,6 +505,25 @@ foreach ($scale in @(100, 125, 150, 175, 200)) {
     Check ($scaledHit -ge 2 * $scaledRadius -and $scaledSpacing -ge $scaledHit) "Traffic lights have separate scaled hit targets: $scale%"
     Check ($scaledLightTop - $scaledHit / 2.0 -ge 0 -and $scaledLightTop + $scaledHit / 2.0 -le $scaledCaption) "Traffic lights fit the draggable caption: $scale%"
     Check ($scaledLightLeft - $scaledHit / 2.0 -ge 0 -and $scaledLightLeft + 2 * $scaledSpacing + $scaledHit / 2.0 -lt (Scale-Pixels $captionSide $scale)) "Caption title avoids all three traffic-light targets: $scale%"
+    $scaledMenuAvatarTop = (Scale-Pixels $mainMenuAvatarTop $scale) + $scaledCaption
+    $scaledMenuCover = (Scale-Pixels $mainMenuNativeCover $scale) + $scaledCaption
+    $scaledMenuNameTop = (Scale-Pixels $mainMenuNameTop $scale) + $scaledCaption
+    $scaledMenuStatusTop = (Scale-Pixels $mainMenuStatusTop $scale) + $scaledCaption
+    $trafficBottom = (Scale-Pixels $cardInset $scale) + $scaledLightTop + $scaledHit / 2.0
+    Check ($scaledMenuAvatarTop -ge $trafficBottom -and $scaledCaption -ge $trafficBottom) "Drawer avatar and reset-scale action clear all caption hit targets: $scale%"
+    Check ($scaledMenuCover - $scaledMenuNameTop -eq (Scale-Pixels $mainMenuNativeCover $scale) - (Scale-Pixels $mainMenuNameTop $scale) -and $scaledMenuStatusTop - $scaledMenuNameTop -eq (Scale-Pixels $mainMenuStatusTop $scale) - (Scale-Pixels $mainMenuNameTop $scale)) "Drawer shifted toggle hit height and name/status spacing remain native: $scale%"
+    foreach ($menuHeightBase in @(480, 640, 900)) {
+        $menuHeight = Scale-Pixels $menuHeightBase $scale
+        $menuScrollTop = $scaledMenuCover - (Scale-Pixels 1 $scale)
+        Check ($menuScrollTop -ge $scaledCaption -and $menuHeight - $menuScrollTop -gt 0) "Drawer scroll viewport remains positive below its extended header: $scale%/$menuHeightBase"
+        foreach ($menuContentBase in @(0, 240, 800)) {
+            $menuContent = Scale-Pixels $menuContentBase $scale
+            $availableMenu = $menuHeight - $scaledMenuCover - $menuContent
+            $nativeAvailableMenu = $menuHeight - (Scale-Pixels $mainMenuNativeCover $scale) - $menuContent
+            $menuFooter = [Math]::Max($availableMenu, (Scale-Pixels $mainMenuFooterMinimum $scale))
+            Check ($nativeAvailableMenu - $availableMenu -eq $scaledCaption -and $menuFooter -ge (Scale-Pixels $mainMenuFooterMinimum $scale)) "Drawer reserves only caption height and preserves minimum scrolling footer: $scale%/$menuHeightBase/$menuContentBase"
+        }
+    }
     $minimumField = Scale-Pixels $fieldMin $scale
     $pad = Scale-Pixels $padding $scale
     $buttonHeight = Scale-Pixels $actionHeight $scale

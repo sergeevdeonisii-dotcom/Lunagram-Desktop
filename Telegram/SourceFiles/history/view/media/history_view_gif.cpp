@@ -810,11 +810,15 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 		ensureDataMediaCreated();
 		const auto cachedNormal = _videoCoverMedia
 			? _videoCoverMedia->image(Data::PhotoSize::Large)
-			: _dataMedia->goodThumbnail()
-			? _dataMedia->goodThumbnail()
+			: _dataMedia->goodThumbnailCached()
+			? _dataMedia->goodThumbnailCached()
 			: _dataMedia->thumbnail();
 		if (!context.backdrop || cachedNormal) {
-			validateThumbCache({ usew, painth }, isRound, rounding);
+			validateThumbCache(
+				{ usew, painth },
+				isRound,
+				rounding,
+				context.backdrop);
 		}
 		p.drawImage(rthumb, _thumbCache);
 	}
@@ -1239,16 +1243,19 @@ void Gif::validateVideoThumbnail() const {
 void Gif::validateThumbCache(
 		QSize outer,
 		bool isEllipse,
-		std::optional<Ui::BubbleRounding> rounding) const {
+		std::optional<Ui::BubbleRounding> rounding,
+		bool backdrop) const {
 	const auto good = _videoCoverMedia
 		? _videoCoverMedia->image(Data::PhotoSize::Large)
+		: backdrop
+		? _dataMedia->goodThumbnailCached()
 		: _dataMedia->goodThumbnail();
 	const auto normal = good
 		? good
 		: _videoCoverMedia
 		? nullptr
 		: _dataMedia->thumbnail();
-	if (!normal) {
+	if (!backdrop && !normal) {
 		if (_videoCoverMedia) {
 			_videoCover->load(Data::PhotoSize::Small, _realParent->fullId());
 		} else {
@@ -1274,7 +1281,7 @@ void Gif::validateThumbCache(
 		&& _thumbIsEllipse == isEllipse) {
 		return;
 	}
-	auto cache = prepareThumbCache(scaled);
+	auto cache = prepareThumbCache(scaled, backdrop);
 	_thumbCache = isEllipse
 		? Images::Circle(std::move(cache))
 		: Images::Round(std::move(cache), MediaRoundingMask(rounding));
@@ -1282,9 +1289,11 @@ void Gif::validateThumbCache(
 	_thumbCacheBlurred = blurred;
 }
 
-QImage Gif::prepareThumbCache(QSize outer) const {
+QImage Gif::prepareThumbCache(QSize outer, bool backdrop) const {
 	const auto good = _videoCoverMedia
 		? _videoCoverMedia->image(Data::PhotoSize::Large)
+		: backdrop
+		? _dataMedia->goodThumbnailCached()
 		: _dataMedia->goodThumbnail();
 	const auto normal = good
 		? good
@@ -1909,7 +1918,12 @@ void Gif::drawGrouped(
 			}
 		}
 	} else if (!fullHiddenBySpoiler) {
-		validateGroupedCache(geometry, rounding, cacheKey, cache);
+		validateGroupedCache(
+			geometry,
+			rounding,
+			cacheKey,
+			cache,
+			context.backdrop);
 		p.drawPixmap(geometry, *cache);
 	}
 
@@ -2240,13 +2254,16 @@ void Gif::validateGroupedCache(
 		const QRect &geometry,
 		Ui::BubbleRounding rounding,
 		not_null<uint64*> cacheKey,
-		not_null<QPixmap*> cache) const {
+		not_null<QPixmap*> cache,
+		bool backdrop) const {
 	using Option = Images::Option;
 
 	ensureDataMediaCreated();
 
 	const auto good = _videoCoverMedia
 		? _videoCoverMedia->image(Data::PhotoSize::Large)
+		: backdrop
+		? _dataMedia->goodThumbnailCached()
 		: _dataMedia->goodThumbnail();
 	const auto thumb = _videoCoverMedia
 		? nullptr

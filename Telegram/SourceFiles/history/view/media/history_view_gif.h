@@ -228,8 +228,9 @@ private:
 	void validateThumbCache(
 		QSize outer,
 		bool isEllipse,
-		std::optional<Ui::BubbleRounding> rounding) const;
-	[[nodiscard]] QImage prepareThumbCache(QSize outer) const;
+		std::optional<Ui::BubbleRounding> rounding,
+		bool backdrop) const;
+	[[nodiscard]] QImage prepareThumbCache(QSize outer, bool backdrop) const;
 	void validateSpoilerImageCache(
 		QSize outer,
 		std::optional<Ui::BubbleRounding> rounding) const;
@@ -238,7 +239,8 @@ private:
 		const QRect &geometry,
 		Ui::BubbleRounding rounding,
 		not_null<uint64*> cacheKey,
-		not_null<QPixmap*> cache) const;
+		not_null<QPixmap*> cache,
+		bool backdrop) const;
 	void setStatusSize(int64 newSize) const;
 	void updateStatusText() const;
 	[[nodiscard]] QSize sizeForAspectRatio() const;

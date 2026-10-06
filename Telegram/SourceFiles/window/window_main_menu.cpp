@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_icon.h"
 #include "info/stories/info_stories_widget.h"
 #include "lang/lang_keys.h"
+#include "lunagram/lunagram_settings.h"
 #include "main/main_account.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
@@ -69,6 +70,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
+#include "styles/style_lunagram_design.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 #include "styles/style_window.h"
@@ -84,6 +86,16 @@ namespace Window {
 namespace {
 
 constexpr auto kPlayStatusLimit = 2;
+
+[[nodiscard]] int MainMenuCaptionSkip() {
+	return Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceCaptionHeight
+		: 0;
+}
+
+[[nodiscard]] int MainMenuCoverHeight() {
+	return st::mainMenuCoverHeight + MainMenuCaptionSkip();
+}
 
 [[nodiscard]] bool CanCheckSpecialEvent() {
 	static const auto result = [] {
@@ -355,7 +367,7 @@ MainMenu::MainMenu(
 	widthValue(
 	) | rpl::on_next([=](int width) {
 		const auto line = st::lineWidth;
-		shadow->setGeometry(0, st::mainMenuCoverHeight - line, width, line);
+		shadow->setGeometry(0, MainMenuCoverHeight() - line, width, line);
 	}, shadow->lifetime());
 
 	_nightThemeSwitch.setCallback([this] {
@@ -447,7 +459,7 @@ MainMenu::MainMenu(
 			}, snowRaw->lifetime());
 			widthValue(
 			) | rpl::on_next([=](int width) {
-				snowRaw->setGeometry(0, 0, width, st::mainMenuCoverHeight);
+				snowRaw->setGeometry(0, 0, width, MainMenuCoverHeight());
 			}, snowRaw->lifetime());
 			snowRaw->show();
 			snowRaw->lower();
@@ -480,8 +492,10 @@ void MainMenu::moveBadge() {
 		+ std::min(_name.maxWidth() + st::semiboldFont->spacew, available);
 	_badge->move(
 		left,
-		st::mainMenuCoverNameTop,
-		st::mainMenuCoverNameTop + st::semiboldFont->height);
+		st::mainMenuCoverNameTop + MainMenuCaptionSkip(),
+		st::mainMenuCoverNameTop
+			+ MainMenuCaptionSkip()
+			+ st::semiboldFont->height);
 }
 
 void MainMenu::setupArchive() {
@@ -793,23 +807,24 @@ void MainMenu::resizeEvent(QResizeEvent *e) {
 }
 
 void MainMenu::updateControlsGeometry() {
+	const auto captionSkip = MainMenuCaptionSkip();
 	_userpicButton->moveToLeft(
 		st::mainMenuUserpicLeft,
-		st::mainMenuUserpicTop);
+		st::mainMenuUserpicTop + captionSkip);
 	if (_resetScaleButton) {
-		_resetScaleButton->moveToRight(0, 0);
+		_resetScaleButton->moveToRight(0, captionSkip);
 	}
 	_setEmojiStatus->moveToLeft(
 		st::mainMenuCoverStatusLeft,
-		st::mainMenuCoverStatusTop,
+		st::mainMenuCoverStatusTop + captionSkip,
 		width());
 	_toggleAccounts->setGeometry(
 		0,
-		st::mainMenuCoverNameTop,
+		st::mainMenuCoverNameTop + captionSkip,
 		width(),
 		st::mainMenuCoverHeight - st::mainMenuCoverNameTop);
 	// Allow cover shadow over the scrolled content.
-	const auto top = st::mainMenuCoverHeight - st::lineWidth;
+	const auto top = MainMenuCoverHeight() - st::lineWidth;
 	_scroll->setGeometry(0, top, width(), height() - top);
 	updateInnerControlsGeometry();
 }
@@ -819,7 +834,7 @@ void MainMenu::updateInnerControlsGeometry() {
 		+ _shadow->height()
 		+ st::mainMenuSkip
 		+ _menu->height();
-	const auto available = height() - st::mainMenuCoverHeight - contentHeight;
+	const auto available = height() - MainMenuCoverHeight() - contentHeight;
 	const auto footerHeight = std::max(
 		available,
 		st::mainMenuFooterHeightMin);
@@ -874,7 +889,7 @@ void MainMenu::hideEvent(QHideEvent *e) {
 void MainMenu::paintEvent(QPaintEvent *e) {
 	auto p = Painter(this);
 	const auto clip = e->rect();
-	const auto cover = QRect(0, 0, width(), st::mainMenuCoverHeight);
+	const auto cover = QRect(0, 0, width(), MainMenuCoverHeight());
 
 	p.fillRect(clip, st::mainMenuBg);
 	if (cover.intersects(clip)) {
@@ -901,7 +916,7 @@ void MainMenu::drawName(Painter &p) {
 	_name.drawLeftElided(
 		p,
 		st::mainMenuCoverNameLeft,
-		st::mainMenuCoverNameTop,
+		st::mainMenuCoverNameTop + MainMenuCaptionSkip(),
 		(widthText
 			- (_badge->widget()
 				? (st::semiboldFont->spacew + _badge->widget()->width())

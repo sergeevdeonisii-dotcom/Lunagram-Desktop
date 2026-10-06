@@ -70,6 +70,12 @@ $inner = Read-Source ($prefix + 'history/history_inner_widget.cpp')
 $message = Read-Source ($prefix + 'history/view/history_view_message.cpp')
 $reply = Read-Source ($prefix + 'history/view/history_view_reply.cpp')
 $paintContext = Read-Source ($prefix + 'ui/chat/chat_style.h')
+$documentMedia = Read-Source ($prefix + 'data/data_document_media.cpp')
+$documentMediaHeader = Read-Source ($prefix + 'data/data_document_media.h')
+$gif = Read-Source ($prefix + 'history/view/media/history_view_gif.cpp')
+$document = Read-Source ($prefix + 'history/view/media/history_view_document.cpp')
+$sticker = Read-Source ($prefix + 'history/view/media/history_view_sticker.cpp')
+$themeDocument = Read-Source ($prefix + 'history/view/media/history_view_theme_document.cpp')
 
 Assert-Contract ($chatStyle -match 'msgMaxWidth:\s*430px;') 'Plain text max width changed.'
 Assert-Contract ($chatStyle -match 'maxMediaSize:\s*430px;') 'Global media max width changed.'
@@ -150,6 +156,47 @@ foreach ($name in @('sizeForGroupingOptimal', 'sizeForGrouping')) {
 Assert-Contract ($nativeSize -match '(?s)CountDesiredMediaSize\(QSize original\).*?DownscaledSize\(\s*style::ConvertScale\(original\),\s*\{ st::maxMediaSize, st::maxMediaSize \}') 'Native unmodified downscale contract changed.'
 
 Assert-Contract ($paintContext -match 'bool backdrop = false;') 'Backdrop paint must be opt-in for every existing context.'
+$cachedThumbnail = Function-Body $documentMedia 'DocumentMedia::goodThumbnailCached'
+Assert-Contract ($documentMediaHeader -match '\[\[nodiscard\]\] Image \*goodThumbnailCached\(\) const;') 'Cached thumbnail accessor declaration missing.'
+Assert-Contract ($cachedThumbnail -match '^\{\s*return _goodThumbnail.get\(\);\s*\}$') 'Capture thumbnail accessor must only return the existing image pointer.'
+Assert-Contract ($cachedThumbnail -notmatch 'Expects|_flags|Wanted|ReadOrGenerate|load|new ') 'Cached thumbnail lookup cannot assert wanted state, request or generate an asset.'
+$normalThumbnail = Function-Body $documentMedia 'DocumentMedia::goodThumbnail'
+Assert-Contract ($normalThumbnail.Contains('Expects((_flags & Flag::GoodThumbnailWanted) != 0);')) 'Native requested-thumbnail assertion must remain enabled.'
+Assert-Contract ($normalThumbnail.Contains('ReadOrGenerateThumbnail(_owner);')) 'Native requested-thumbnail generation behavior changed.'
+foreach ($source in @($gif, $document, $sticker, $themeDocument)) {
+    $normalCalls = [regex]::Matches($source, '_dataMedia->goodThumbnail\(\)').Count
+    $guardedCalls = [regex]::Matches($source, '(?:context\.)?backdrop\s*\?\s*_dataMedia->goodThumbnailCached\(\)\s*:\s*_dataMedia->goodThumbnail\(\)').Count
+    Assert-Contract ($normalCalls -gt 0 -and $guardedCalls -eq $normalCalls) 'Every capture-reachable goodThumbnail call must select the pure cached accessor before the native getter.'
+}
+foreach ($entry in @(
+    @($gif, 'Gif::validateThumbCache'),
+    @($gif, 'Gif::prepareThumbCache'),
+    @($gif, 'Gif::validateGroupedCache'),
+    @($document, 'Document::validateThumbnail'),
+    @($sticker, 'Sticker::paintedPixmap'),
+    @($themeDocument, 'ThemeDocument::validateThumbnail')
+)) {
+    $body = Function-Body $entry[0] $entry[1]
+    Assert-Contract ($body -match '(?:context\.)?backdrop\s*\?\s*_dataMedia->goodThumbnailCached\(\)') ('Nested thumbnail helper loses capture mode: ' + $entry[1])
+}
+Assert-Contract ($gif -match '(?s)validateThumbCache\(\s*\{ usew, painth \},\s*isRound,\s*rounding,\s*context.backdrop\)') 'Single Gif thumbnail caller must propagate capture mode.'
+Assert-Contract ($gif -match '(?s)validateGroupedCache\(\s*geometry,\s*rounding,\s*cacheKey,\s*cache,\s*context.backdrop\)') 'Grouped Gif thumbnail caller must propagate capture mode.'
+Assert-Contract ($gif -match 'prepareThumbCache\(scaled, backdrop\)') 'Gif cache preparation must inherit capture mode rather than defaulting to native loading.'
+Assert-Contract ($gif -match 'if \(!backdrop && !normal\)') 'Capture Gif fallback must not load or validate a video thumbnail.'
+Assert-Contract ($document -match '(?s)validateThumbnail\(\s*thumbed,\s*st.thumbSize,\s*rounding,\s*context.backdrop\)') 'Document thumbnail caller must propagate capture mode.'
+Assert-Contract ($document -match 'if \(!backdrop && _data->isSvgImage\(\)\)') 'Capture SVG fallback must not set wanted flags or request thumbnail generation.'
+Assert-Contract ($themeDocument -match 'validateThumbnail\(context.backdrop\)') 'Theme thumbnail caller must propagate capture mode.'
+foreach ($wanted in @($false, $true)) {
+    foreach ($cached in @($false, $true)) {
+        foreach ($backdrop in @($false, $true)) {
+            $lookup = if ($backdrop) { 'cached' } else { 'native' }
+            $asserts = $lookup -eq 'native' -and !$wanted
+            $generates = $lookup -eq 'native' -and $wanted -and !$cached
+            Assert-Contract (!$backdrop -or (!$asserts -and !$generates)) 'Cold capture media must be safe before wanted state is set.'
+            Assert-Contract ($backdrop -or ($asserts -eq (!$wanted) -and $generates -eq ($wanted -and !$cached))) 'Non-capture getter must retain native wanted assertion and lazy generation.'
+        }
+    }
+}
 $diceCaptureSource = Read-Source 'Telegram/SourceFiles/history/view/media/history_view_dice.cpp'
 Assert-Contract ($diceCaptureSource -match '#include "ui/chat/chat_style.h"') 'Dice capture must include the complete ChatPaintContext definition before accessing its fields.'
 $capture = Function-Body $inner 'HistoryInner::paintBackdrop'

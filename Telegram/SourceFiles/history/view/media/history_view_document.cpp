@@ -767,10 +767,14 @@ void Document::draw(
 	if (thumbed) {
 		const auto rounding = thumbRounding(mode, outsideRounding);
 		if (!context.backdrop
-			|| _dataMedia->goodThumbnail()
+			|| _dataMedia->goodThumbnailCached()
 			|| _dataMedia->thumbnail()
 			|| _dataMedia->thumbnailInline()) {
-			validateThumbnail(thumbed, st.thumbSize, rounding);
+			validateThumbnail(
+				thumbed,
+				st.thumbSize,
+				rounding,
+				context.backdrop);
 		}
 		p.drawImage(rthumb, thumbed->thumbnail);
 		if (context.selected()) {
@@ -1141,14 +1145,17 @@ Ui::BubbleRounding Document::thumbRounding(
 void Document::validateThumbnail(
 		not_null<const HistoryDocumentThumbed*> thumbed,
 		int size,
-		Ui::BubbleRounding rounding) const {
+		Ui::BubbleRounding rounding,
+		bool backdrop) const {
 	const auto good = _data->isSvgImage()
-		? _dataMedia->goodThumbnail()
+		? (backdrop
+			? _dataMedia->goodThumbnailCached()
+			: _dataMedia->goodThumbnail())
 		: nullptr;
 	const auto normal = good ? good : _dataMedia->thumbnail();
 	const auto blurred = _dataMedia->thumbnailInline();
 	if (!normal && !blurred) {
-		if (_data->isSvgImage()) {
+		if (!backdrop && _data->isSvgImage()) {
 			_dataMedia->goodThumbnailWanted();
 			Data::DocumentMedia::CheckGoodThumbnail(_data);
 		}

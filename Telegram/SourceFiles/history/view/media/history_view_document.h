@@ -138,7 +138,8 @@ private:
 	void validateThumbnail(
 		not_null<const HistoryDocumentThumbed*> thumbed,
 		int size,
-		Ui::BubbleRounding rounding) const;
+		Ui::BubbleRounding rounding,
+		bool backdrop) const;
 
 	void setStatusSize(int64 newSize, TimeId realDuration = 0) const;
 	bool updateStatusText() const; // returns showPause

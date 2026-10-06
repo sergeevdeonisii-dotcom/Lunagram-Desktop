@@ -199,6 +199,10 @@ Image *DocumentMedia::goodThumbnail() const {
 	return _goodThumbnail.get();
 }
 
+Image *DocumentMedia::goodThumbnailCached() const {
+	return _goodThumbnail.get();
+}
+
 void DocumentMedia::setGoodThumbnail(QImage thumbnail) {
 	if (!(_flags & Flag::GoodThumbnailWanted) || thumbnail.isNull()) {
 		return;

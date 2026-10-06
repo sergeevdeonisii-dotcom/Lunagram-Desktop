@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_session.h"
 
+#include "lunagram/message_history.h"
+
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "main/main_app_config.h"
@@ -496,6 +498,7 @@ void Session::subscribeForTopicRepliesLists() {
 
 void Session::clear() {
 	_sessionDataAboutToBeCleared.fire({});
+	_lunagramHistory = nullptr;
 
 	// Optimization: clear notifications before destroying items.
 	Core::App().notifications().clearFromSession(_session);
@@ -566,6 +569,13 @@ void Session::clear() {
 	_games.clear();
 	_documents.clear();
 	_photos.clear();
+}
+
+Lunagram::MessageHistory &Session::lunagramHistory() {
+	if (!_lunagramHistory) {
+		_lunagramHistory = std::make_unique<Lunagram::MessageHistory>(_session);
+	}
+	return *_lunagramHistory;
 }
 
 void Session::keepAlive(std::shared_ptr<PhotoMedia> media) {
@@ -3075,6 +3085,10 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 		Reactions::CheckUnknownForUnread(this, data);
 		return;
 	}
+	if (existing->lunagramRetainedDeleted()) {
+		return;
+	}
+	lunagramHistory().recordEdit(existing, data);
 	if (existing->isLocalUpdateMedia() && data.type() == mtpc_message) {
 		updateExistingMessage(data.c_message());
 	}
@@ -3084,6 +3098,7 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 	}, [&](const auto &data) {
 		existing->applyEdition(HistoryMessageEdition(_session, data));
 	});
+	lunagramHistory().observe(existing, data);
 }
 
 void Session::processMessages(
@@ -3342,6 +3357,12 @@ void Session::checkFormattedDateUpdates() {
 void Session::processMessagesDeleted(
 		PeerId peerId,
 		const QVector<MTPint> &data) {
+	auto candidates = std::vector<FullMsgId>();
+	candidates.reserve(data.size());
+	for (const auto &id : data) {
+		candidates.emplace_back(peerId, id.v);
+	}
+	lunagramHistory().retainDeletedBatch(candidates);
 	const auto list = messagesList(peerId);
 	const auto affected = historyLoaded(peerId);
 	if (!list && !affected) {
@@ -3354,6 +3375,9 @@ void Session::processMessagesDeleted(
 		const auto i = list ? list->find(messageId.v) : Messages::iterator();
 		if (list && i != list->end()) {
 			const auto history = i->second->history();
+			if (lunagramHistory().retain(i->second)) {
+				continue;
+			}
 			toDestroy.push_back(i->second);
 			historiesToCheck.emplace(history);
 		} else if (affected) {
@@ -3374,11 +3398,15 @@ void Session::processMessagesDeleted(
 }
 
 void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
+	lunagramHistory().retainNonChannelDeletedBatch(data);
 	auto toDestroy = std::vector<not_null<HistoryItem*>>();
 	auto historiesToCheck = base::flat_set<not_null<History*>>();
 	for (const auto &messageId : data) {
 		if (const auto item = nonChannelMessage(messageId.v)) {
 			const auto history = item->history();
+			if (lunagramHistory().retain(item)) {
+				continue;
+			}
 			toDestroy.push_back(item);
 			historiesToCheck.emplace(history);
 		}
@@ -3602,6 +3630,7 @@ HistoryItem *Session::addNewMessage(
 			if (const auto streamed = h->streamedDraftsIfExists()) {
 				if (const auto adopted = streamed->adoptIncoming(
 						data.c_message())) {
+					lunagramHistory().observe(adopted, data);
 					CheckForSwitchInlineButton(adopted);
 					return adopted;
 				}

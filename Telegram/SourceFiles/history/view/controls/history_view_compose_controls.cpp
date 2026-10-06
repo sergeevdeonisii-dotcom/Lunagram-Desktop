@@ -99,6 +99,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/editor/iv_editor_session.h"
 #include "iv/iv_rich_page.h"
 #include "lang/lang_keys.h"
+#include "lunagram/composer.h"
 #include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -3149,6 +3150,7 @@ void ComposeControls::initField() {
 		return false;
 	});
 	InitMessageFieldFade(_field, _st.field.textBg);
+	Lunagram::InitComposerEffects(&session(), _field, [=] { _wrap->update(); });
 	_field->setEditLinkCallback(
 		DefaultEditLinkCallback(_show, _field, &_st.boxField));
 	_field->setEditLanguageCallback(DefaultEditLanguageCallback(_show));
@@ -5627,6 +5629,7 @@ void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
 	} else {
 		p.fillRect(clip, _st.bg);
 	}
+	Lunagram::PaintComposerBackground(p, full, &session(), false);
 }
 
 void ComposeControls::escape() {

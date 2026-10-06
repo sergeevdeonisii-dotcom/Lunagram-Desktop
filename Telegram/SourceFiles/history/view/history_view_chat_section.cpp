@@ -123,6 +123,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/editor/iv_editor_session.h"
 #include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
+#include "lunagram/composer.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_info.h"
@@ -1585,17 +1587,41 @@ void ChatWidget::setupComposeControls() {
 
 	_composeControls->cancelRequests(
 	) | rpl::on_next([=] {
+		if (_lunagramPendingSend && _lunagramPendingSend->pending()) {
+			_lunagramPendingSend->cancel();
+			return;
+		}
 		listCancelRequest();
 	}, lifetime());
+	Lunagram::VaultChanges(&session()) | rpl::on_next([=] {
+		if (_lunagramPendingSend
+			&& Lunagram::IsChatLocked(&session(), _history->peer->id)) {
+			_lunagramPendingSend->cancel();
+		}
+	}, lifetime());
+
+	if (const auto field = _composeControls->fieldForMention()) {
+		field->changes() | rpl::on_next([=] {
+			if (_lunagramPendingSend) {
+				_lunagramPendingSend->cancel();
+			}
+		}, lifetime());
+	}
 
 	_composeControls->replyingToMessageValue(
 	) | rpl::skip(1) | rpl::on_next([=](FullReplyTo) {
+		if (_lunagramPendingSend) {
+			_lunagramPendingSend->cancel();
+		}
 		refreshCanSendMessages();
 		updateBotKeyboard();
 	}, lifetime());
 
 	_composeControls->editMsgIdValue(
 	) | rpl::skip(1) | rpl::on_next([=](FullMsgId) {
+		if (_lunagramPendingSend) {
+			_lunagramPendingSend->cancel();
+		}
 		updateBotKeyboard();
 	}, lifetime());
 
@@ -2548,7 +2574,17 @@ void ChatWidget::sendTextWithTags(
 		TextWithTags textWithTags,
 		bool useCurrentWebPageDraft,
 		Api::SendOptions options,
-		Fn<void()> done) {
+		Fn<void()> done,
+		bool undoApproved) {
+	if (!undoApproved
+		&& _lunagramPendingSend
+		&& _lunagramPendingSend->pending()) {
+		if (options.scheduled) {
+			_lunagramPendingSend->cancel();
+		} else {
+			return;
+		}
+	}
 	if (!options.scheduled) {
 		_cornerButtons.clearReplyReturns();
 	}
@@ -2587,7 +2623,8 @@ void ChatWidget::sendTextWithTags(
 					textWithTags,
 					useCurrentWebPageDraft,
 					copy,
-					done);
+					done,
+					undoApproved);
 			};
 			const auto checked = checkSendPayment(
 				request.messagesCount,
@@ -2599,10 +2636,66 @@ void ChatWidget::sendTextWithTags(
 		}
 	}
 
-	const auto nextLocalMessageId = session().data().nextLocalMessageId();
 	const auto hasText = !message.textWithTags.text.trimmed().isEmpty();
+	const auto field = _composeControls->fieldForMention();
+	const auto &sendOptions = message.action.options;
+	const auto undoEligible = !undoApproved
+		&& field
+		&& hasText
+		&& _canSendMessages
+		&& useCurrentWebPageDraft
+		&& !ephemeral
+		&& !sendOptions.scheduled
+		&& !sendOptions.shortcutId
+		&& !sendOptions.welcomeTemplate
+		&& !sendOptions.ttlSeconds
+		&& !sendOptions.price
+		&& !sendOptions.starsApproved
+		&& !sendOptions.stakeNanoTon
+		&& !sendOptions.suggest
+		&& !_composeControls->isEditingMessage()
+		&& !_creatingBotTopic
+		&& message.action.clearDraft
+		&& _composeControls->forwardItems().empty()
+		&& (textWithTags == _composeControls->getTextWithAppliedMarkdown());
+	if (undoEligible) {
+		const auto action = message.action;
+		const auto reply = replyTo();
+		const auto draft = field->getTextWithTags();
+		const auto preview = message.webPage;
+		auto pending = Lunagram::QueueUndoSend(controller(), crl::guard(this, [=] {
+			const auto currentField = _composeControls->fieldForMention();
+			if (_history != action.history
+				|| Lunagram::IsChatLocked(&session(), action.history->peer->id)
+				|| isHidden()
+				|| !currentField
+				|| currentField->isHidden()
+				|| !_canSendMessages
+				|| _composeControls->isEditingMessage()
+				|| _composeControls->shownRichMessage()
+				|| !_composeControls->forwardItems().empty()
+				|| currentField->getTextWithTags() != draft
+				|| replyTo() != reply
+				|| _composeControls->webPageDraft() != preview
+				|| prepareSendAction(options) != action) {
+				controller()->showToast(tr::lng_lunagram_undo_cancelled(tr::now));
+				return;
+			}
+			sendTextWithTags(
+				textWithTags,
+				useCurrentWebPageDraft,
+				options,
+				done,
+				true);
+		}));
+		if (pending) {
+			_lunagramPendingSend = std::move(pending);
+			return;
+		}
+	}
+	const auto nextLocalMessageId = session().data().nextLocalMessageId();
 
-	if (const auto field = _composeControls->fieldForMention(); field
+	if (field
 		&& hasText
 		&& message.webPage.url.isEmpty()
 		&& (field->document()->size().height() <= field->height())) {

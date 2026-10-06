@@ -211,6 +211,10 @@ TextState BottomInfo::textState(
 	).contains(position);
 	if (inTime) {
 		result.cursor = CursorState::Date;
+		if (_data.flags & Data::Flag::RetainedDelete) {
+			result.customTooltip = true;
+			result.customTooltipText = tr::lng_lunagram_deleted_local(tr::now);
+		}
 	}
 	return result;
 }
@@ -523,7 +527,10 @@ void BottomInfo::layoutDateText() {
 		: (name + afterAuthor);
 	auto helper = Ui::Text::CustomEmojiHelper(
 		Core::TextContext({ .session = &_reactionsOwner->session() }));
-	auto marked = TextWithEntities();
+	auto marked = tr::marked();
+	if (_data.flags & Data::Flag::RetainedDelete) {
+		marked.append(u"\U0001F5D1\uFE0E "_q);
+	}
 	if (const auto count = _data.stars) {
 		marked.append(
 			Ui::Text::IconEmoji(&st::starIconEmojiSmall)
@@ -663,6 +670,9 @@ BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
 
 	auto result = BottomInfo::Data();
 	result.date = message->dateTime();
+	if (item->lunagramRetainedDeleted()) {
+		result.flags |= Flag::RetainedDelete;
+	}
 	result.effectId = item->effectId();
 	if (message->hasOutLayout()) {
 		result.flags |= Flag::OutLayout;

@@ -200,7 +200,8 @@ void AboutRatingBox(
 		not_null<GenericBox*> box,
 		const QString &name,
 		Counters data,
-		Data::StarsRatingPending pending) {
+		Data::StarsRatingPending pending,
+		bool local) {
 	box->setWidth(st::boxWideWidth);
 	box->setStyle(st::boostBox);
 
@@ -226,12 +227,17 @@ void AboutRatingBox(
 
 	box->setMaxHeight(st::boostBoxMaxHeight);
 
-	auto title = rpl::conditional(
-		state->pending.value(),
-		tr::lng_stars_rating_future(),
-		tr::lng_stars_rating_title());
+	auto title = local
+		? tr::lng_lunagram_rating_local_title() | rpl::type_erased
+		: rpl::conditional(
+			state->pending.value(),
+			tr::lng_stars_rating_future(),
+			tr::lng_stars_rating_title()) | rpl::type_erased;
 
-	auto text = !name.isEmpty()
+	auto text = local
+		? tr::lng_lunagram_rating_local_description(tr::rich)
+			| rpl::type_erased
+		: !name.isEmpty()
 		? tr::lng_stars_rating_about(
 			lt_name,
 			rpl::single(TextWithEntities{ name }),
@@ -413,12 +419,14 @@ StarsRating::StarsRating(
 	std::shared_ptr<Show> show,
 	const QString &name,
 	rpl::producer<Counters> value,
-	Fn<Data::StarsRatingPending()> pending)
+	Fn<Data::StarsRatingPending()> pending,
+	Fn<bool()> local)
 : _widget(std::make_unique<AbstractButton>(parent))
 , _show(std::move(show))
 , _name(name)
 , _value(std::move(value))
-, _pending(std::move(pending)) {
+, _pending(std::move(pending))
+, _local(std::move(local)) {
 	init();
 }
 
@@ -436,9 +444,15 @@ void StarsRating::init() {
 		if (!_value.current()) {
 			return;
 		}
-		_show->show(Box(AboutRatingBox, _name, _value.current(), _pending
-			? _pending()
-			: Data::StarsRatingPending()));
+		const auto local = _local && _local();
+		_show->show(Box(
+			AboutRatingBox,
+			_name,
+			_value.current(),
+			(_pending && !local)
+				? _pending()
+				: Data::StarsRatingPending(),
+			local));
 	});
 
 	_widget->resize(_widget->width(), st::level1.icon.height());

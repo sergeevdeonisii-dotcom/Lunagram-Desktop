@@ -670,6 +670,12 @@ public:
 	[[nodiscard]] TimeId ttlDestroyAt() const {
 		return _ttlDestroyAt;
 	}
+	[[nodiscard]] bool lunagramRetainedDeleted() const {
+		return _lunagramRetainedDeleted;
+	}
+	void setLunagramRetainedDeleted(bool retained) {
+		_lunagramRetainedDeleted = retained;
+	}
 
 	[[nodiscard]] int boostsApplied() const {
 		return _boostsApplied;
@@ -823,6 +829,7 @@ private:
 	int _boostsApplied = 0;
 	int _starsPaid = 0;
 	BusinessShortcutId _shortcutId = 0;
+	bool _lunagramRetainedDeleted : 1 = false;
 
 	MessageGroupId _groupId = MessageGroupId();
 	EffectId _effectId = 0;

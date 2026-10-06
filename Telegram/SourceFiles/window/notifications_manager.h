@@ -277,9 +277,11 @@ public:
 	explicit Manager(not_null<System*> system) : _system(system) {
 	}
 
-	void showNotification(NotificationFields fields) {
-		doShowNotification(std::move(fields));
-	}
+	void showNotification(NotificationFields fields);
+	void recordPostedNotification(
+		not_null<HistoryItem*> item,
+		const QString &title,
+		const TextWithEntities &preview);
 	void updateAll() {
 		doUpdateAll();
 	}
@@ -415,6 +417,7 @@ public:
 		Fn<NotificationSound()> sound;
 		DisplayOptions options;
 		std::vector<NotificationAction> actions;
+		bool journalMessage = false;
 	};
 
 protected:

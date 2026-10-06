@@ -114,6 +114,25 @@ nice_target_sources(Telegram ${src_loc}
 PRIVATE
     ${style_files}
 
+    lunagram/chat_vault.cpp
+    lunagram/chat_vault.h
+    lunagram/composer.cpp
+    lunagram/composer.h
+    lunagram/formatting.cpp
+    lunagram/formatting.h
+    lunagram/gifts_profile.cpp
+    lunagram/gifts_profile.h
+    lunagram/local_tools.cpp
+    lunagram/local_tools.h
+    lunagram/lunagram_settings.cpp
+    lunagram/lunagram_settings.h
+    lunagram/message_history.cpp
+    lunagram/message_history.h
+    lunagram/private_codec.cpp
+    lunagram/private_codec.h
+    lunagram/secure_storage.cpp
+    lunagram/secure_storage.h
+
     api/api_attached_stickers.cpp
     api/api_attached_stickers.h
     api/api_authorizations.cpp
@@ -1844,6 +1863,8 @@ PRIVATE
     settings/sections/settings_advanced.h
     settings/sections/settings_chat.cpp
     settings/sections/settings_chat.h
+    settings/sections/settings_lunagram.cpp
+    settings/sections/settings_lunagram.h
     settings/sections/settings_blocked_peers.cpp
     settings/sections/settings_blocked_peers.h
     settings/sections/settings_business.cpp

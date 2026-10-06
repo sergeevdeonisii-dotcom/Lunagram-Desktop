@@ -24,6 +24,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/peer_gifts/info_peer_gifts_common.h"
 #include "info/info_controller.h"
 #include "info/info_memento.h"
+#include "lunagram/chat_vault.h"
+#include "lunagram/gifts_profile.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/controls/sub_tabs.h"
 #include "ui/layers/generic_box.h"
@@ -31,11 +33,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/box_content_divider.h"
+#include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/wrap/slide_wrap.h"
+#include "ui/wrap/vertical_layout.h"
 #include "ui/ui_utility.h"
 #include "ui/effects/animations.h"
 #include "lang/lang_keys.h"
@@ -44,13 +48,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/sender.h"
 #include "window/window_session_controller.h"
 #include "settings/settings_credits_graphics.h"
+#include <QtWidgets/QApplication>
+
+#include "styles/style_boxes.h"
+#include "styles/style_credits.h" // giftBoxPadding
 #include "styles/style_info.h"
 #include "styles/style_layers.h" // boxRadius
 #include "styles/style_media_player.h" // mediaPlayerMenuCheck
 #include "styles/style_menu_icons.h"
-#include "styles/style_credits.h" // giftBoxPadding
-
-#include <QtWidgets/QApplication>
 
 namespace Info::PeerGifts {
 namespace {
@@ -59,6 +64,8 @@ constexpr auto kPreloadPages = 2;
 constexpr auto kPerPage = 50;
 constexpr auto kScrollFactor = 0.05;
 constexpr auto kPreloadButtonRows = 2;
+
+base::flat_set<uint64> ActiveGiftVisibility;
 
 [[nodiscard]] GiftDescriptor DescriptorForGift(
 		not_null<PeerData*> to,
@@ -125,6 +132,7 @@ public:
 		not_null<PeerData*> peer,
 		rpl::producer<Descriptor> descriptor,
 		Ui::ScrollArea *scroll = nullptr);
+	~InnerWidget();
 
 	[[nodiscard]] not_null<PeerData*> peer() const {
 		return _peer;
@@ -165,10 +173,13 @@ private:
 	struct Entry {
 		Data::SavedStarGift gift;
 		GiftDescriptor descriptor;
+		int order = 0;
 	};
 	struct Entries {
 		std::vector<Entry> list;
 		std::optional<Filter> filter;
+		QString offset;
+		base::flat_set<QString> pageOffsets;
 		int total = 0;
 		bool allLoaded = false;
 	};
@@ -246,6 +257,14 @@ private:
 
 	void markPinned(std::vector<Entry>::iterator i);
 	void markUnpinned(std::vector<Entry>::iterator i);
+	void applyLocalPins();
+	void toggleLocalPin(const Data::SavedStarGift &gift);
+	void confirmGiftVisibility(bool hidden);
+	void startGiftVisibility(bool hidden);
+	void loadGiftVisibilityPage(QString offset);
+	void changeNextGiftVisibility();
+	void finishGiftVisibility(bool completed, const QString &error = {});
+	[[nodiscard]] int controlsHeight() const;
 
 	int resizeGetHeight(int width) override;
 
@@ -262,6 +281,18 @@ private:
 	Delegate _delegate;
 	std::unique_ptr<Ui::SubTabs> _collectionsTabs;
 	std::unique_ptr<Ui::RpWidget> _about;
+	std::unique_ptr<Ui::VerticalLayout> _visibilityControls;
+	base::flat_set<QString> _localPins;
+	std::vector<Data::SavedStarGift> _visibilityGifts;
+	base::flat_set<QString> _visibilityOffsets;
+	base::flat_set<QString> _visibilityIdentities;
+	QPointer<Ui::GenericBox> _visibilityBox;
+	rpl::variable<QString> _visibilityStatus;
+	mtpRequestId _visibilityRequestId = 0;
+	int _visibilityApplied = 0;
+	bool _visibilityRunning = false;
+	bool _visibilityHidden = false;
+	bool _localPinsApplied = false;
 	rpl::event_stream<> _scrollToTop;
 	rpl::variable<bool> _collectionEmpty;
 	bool _pendingCollectionReorder = false;
@@ -278,7 +309,6 @@ private:
 	MTP::Sender _api;
 	mtpRequestId _loadMoreRequestId = 0;
 	Fn<void()> _collectionsLoadedCallback;
-	QString _offset;
 	bool _collectionsLoaded = false;
 
 	rpl::event_stream<Descriptor> _descriptorChanges;
@@ -358,6 +388,28 @@ InnerWidget::InnerWidget(
 , _api(&_peer->session().mtp())
 , _scrollAnimation([=] { updateScrollCallback(); }) {
 	_singleMin = _delegate.buttonSize();
+	_localPins = Lunagram::GiftPins(peer);
+	Lunagram::GiftPinChanges(peer) | rpl::on_next([=] {
+		_localPins = Lunagram::GiftPins(peer);
+		cancelDragging();
+		refreshButtons();
+	}, lifetime());
+	if (peer->isSelf() && !_addingToCollectionId) {
+		_visibilityControls = std::make_unique<Ui::VerticalLayout>(this);
+		for (const auto hidden : { true, false }) {
+			const auto button = _visibilityControls->add(
+				object_ptr<Ui::RoundButton>(
+					_visibilityControls.get(),
+					hidden
+						? tr::lng_lunagram_gifts_hide_all()
+						: tr::lng_lunagram_gifts_show_all(),
+					st::collectionEmptyButton),
+				{},
+				style::al_justify);
+			button->setClickedCallback([=] { confirmGiftVisibility(hidden); });
+		}
+		_visibilityControls->show();
+	}
 
 	if (peer->canManageGifts()) {
 		subscribeToUpdates();
@@ -413,6 +465,243 @@ void InnerWidget::switchTo(int collectionId) {
 	_list = &_entries->list;
 	refreshButtons();
 	refreshAbout();
+	loadMore();
+}
+
+InnerWidget::~InnerWidget() {
+	if (base::take(_visibilityRunning)) {
+		ActiveGiftVisibility.remove(_peer->session().uniqueId());
+	}
+	_api.request(base::take(_visibilityRequestId)).cancel();
+	if (const auto box = base::take(_visibilityBox)) {
+		box->closeBox();
+	}
+}
+
+int InnerWidget::controlsHeight() const {
+	return _visibilityControls
+		? _visibilityControls->height() + st::giftBoxPadding.top()
+		: 0;
+}
+
+void InnerWidget::applyLocalPins() {
+	if (_addingToCollectionId) {
+		return;
+	}
+	for (auto &entry : *_list) {
+		if (const auto data = std::get_if<GiftTypeStars>(&entry.descriptor)) {
+			data->pinned = entry.gift.pinned
+				|| _localPins.contains(Lunagram::GiftIdentity(entry.gift));
+		}
+	}
+	if (!_localPins.empty() || _localPinsApplied) {
+		ranges::stable_sort(*_list, [&](const Entry &a, const Entry &b) {
+			const auto ap = _localPins.contains(Lunagram::GiftIdentity(a.gift));
+			const auto bp = _localPins.contains(Lunagram::GiftIdentity(b.gift));
+			return (ap != bp) ? ap : a.order < b.order;
+		});
+		for (auto &view : _views) {
+			view.index = -1;
+			view.manageId = {};
+		}
+	}
+	_localPinsApplied = !_localPins.empty();
+}
+
+void InnerWidget::toggleLocalPin(const Data::SavedStarGift &gift) {
+	const auto identity = Lunagram::GiftIdentity(gift);
+	auto pins = _localPins;
+	if (pins.contains(identity)) {
+		pins.remove(identity);
+	} else {
+		pins.emplace(identity);
+	}
+	if (!Lunagram::SaveGiftPins(_peer, pins)) {
+		_window->uiShow()->showToast(tr::lng_lunagram_private_write_failed(tr::now));
+		return;
+	}
+	_localPins = std::move(pins);
+	cancelDragging();
+	refreshButtons();
+	_scrollToTop.fire({});
+}
+
+void InnerWidget::confirmGiftVisibility(bool hidden) {
+	if (!_peer->isSelf() || _visibilityRunning
+		|| Lunagram::IsChatLocked(&_peer->session(), _peer->id)) {
+		return;
+	}
+	if (ActiveGiftVisibility.contains(_peer->session().uniqueId())) {
+		_window->uiShow()->showToast(
+			tr::lng_lunagram_gifts_visibility_busy(tr::now));
+		return;
+	}
+	_window->uiShow()->show(Ui::MakeConfirmBox({
+		.text = hidden
+			? tr::lng_lunagram_gifts_hide_all_confirm()
+			: tr::lng_lunagram_gifts_show_all_confirm(),
+		.confirmed = crl::guard(this, [=](Fn<void()> close) {
+			const auto weak = QPointer<InnerWidget>(this);
+			close();
+			if (weak) {
+				weak->startGiftVisibility(hidden);
+			}
+		}),
+		.confirmText = hidden
+			? tr::lng_lunagram_gifts_hide_all()
+			: tr::lng_lunagram_gifts_show_all(),
+	}));
+}
+
+void InnerWidget::startGiftVisibility(bool hidden) {
+	if (_visibilityRunning
+		|| !_peer->isSelf()
+		|| Lunagram::IsChatLocked(&_peer->session(), _peer->id)
+		|| ActiveGiftVisibility.contains(_peer->session().uniqueId())) {
+		return;
+	}
+	ActiveGiftVisibility.emplace(_peer->session().uniqueId());
+	_visibilityRunning = true;
+	_visibilityHidden = hidden;
+	_visibilityApplied = 0;
+	_visibilityGifts.clear();
+	_visibilityOffsets.clear();
+	_visibilityIdentities.clear();
+	_visibilityStatus = tr::lng_contacts_loading(tr::now);
+	_window->uiShow()->show(Box([=](not_null<Ui::GenericBox*> box) {
+		_visibilityBox = box.get();
+		box->setTitle(tr::lng_lunagram_gifts_visibility_title());
+		box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			_visibilityStatus.value(),
+			st::boxLabel));
+		box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+		box->boxClosing() | rpl::on_next(crl::guard(this, [=] {
+			finishGiftVisibility(false);
+		}), box->lifetime());
+	}));
+	loadGiftVisibilityPage({});
+}
+
+void InnerWidget::loadGiftVisibilityPage(QString offset) {
+	if (!_visibilityRunning || !_peer->isSelf()) {
+		return;
+	}
+	if (_visibilityOffsets.contains(offset)) {
+		finishGiftVisibility(false);
+		return;
+	}
+	_visibilityOffsets.emplace(offset);
+	using Flag = MTPpayments_GetSavedStarGifts::Flag;
+	_visibilityRequestId = _api.request(MTPpayments_GetSavedStarGifts(
+		MTP_flags(_visibilityHidden ? Flag::f_exclude_unsaved : Flag::f_exclude_saved),
+		_peer->input(),
+		MTP_int(0),
+		MTP_string(offset),
+		MTP_int(100)
+	)).done([=](const MTPpayments_SavedStarGifts &result) {
+		_visibilityRequestId = 0;
+		const auto &data = result.data();
+		_peer->owner().processUsers(data.vusers());
+		_peer->owner().processChats(data.vchats());
+		for (const auto &value : data.vgifts().v) {
+			if (auto gift = Api::FromTL(_peer, value)) {
+				const auto identity = Lunagram::GiftIdentity(*gift);
+				if ((gift->manageId || gift->info.unique)
+					&& !_visibilityIdentities.contains(identity)) {
+					_visibilityIdentities.emplace(identity);
+					_visibilityGifts.push_back(std::move(*gift));
+				}
+			}
+		}
+		const auto next = data.vnext_offset() ? qs(*data.vnext_offset()) : QString();
+		if (!next.isEmpty()) {
+			loadGiftVisibilityPage(next);
+		} else {
+			changeNextGiftVisibility();
+		}
+	}).fail([=](const MTP::Error &error) {
+		_visibilityRequestId = 0;
+		finishGiftVisibility(false, MTP::IgnoreError(error) ? QString() : error.type());
+	}).handleFloodErrors().send();
+}
+
+void InnerWidget::changeNextGiftVisibility() {
+	if (!_visibilityRunning || !_peer->isSelf()) {
+		return;
+	} else if (_visibilityApplied >= _visibilityGifts.size()) {
+		finishGiftVisibility(true);
+		return;
+	}
+	const auto gift = _visibilityGifts[_visibilityApplied];
+	using Flag = MTPpayments_SaveStarGift::Flag;
+	_visibilityRequestId = _api.request(MTPpayments_SaveStarGift(
+		MTP_flags(_visibilityHidden ? Flag::f_unsave : Flag()),
+		Api::InputSavedStarGiftId(gift.manageId, gift.info.unique)
+	)).done([=](const MTPBool &result) {
+		_visibilityRequestId = 0;
+		if (!mtpIsTrue(result)) {
+			finishGiftVisibility(false);
+			return;
+		}
+		++_visibilityApplied;
+		_visibilityStatus = tr::lng_lunagram_gifts_visibility_progress(
+			tr::now,
+			lt_count,
+			_visibilityApplied);
+		_peer->owner().notifyGiftUpdate({
+			.id = gift.manageId,
+			.slug = gift.info.unique ? gift.info.unique->slug : QString(),
+			.action = _visibilityHidden
+				? Data::GiftUpdate::Action::Unsave
+				: Data::GiftUpdate::Action::Save,
+		});
+		changeNextGiftVisibility();
+	}).fail([=](const MTP::Error &error) {
+		_visibilityRequestId = 0;
+		finishGiftVisibility(false, MTP::IgnoreError(error) ? QString() : error.type());
+	}).handleFloodErrors().send();
+}
+
+void InnerWidget::finishGiftVisibility(bool completed, const QString &error) {
+	if (!base::take(_visibilityRunning)) {
+		return;
+	}
+	ActiveGiftVisibility.remove(_peer->session().uniqueId());
+	_api.request(base::take(_visibilityRequestId)).cancel();
+	if (const auto box = base::take(_visibilityBox)) {
+		box->closeBox();
+	}
+	const auto message = !completed
+		? tr::lng_lunagram_gifts_visibility_partial(
+			tr::now,
+			lt_count,
+			_visibilityApplied)
+		: _visibilityGifts.empty()
+		? tr::lng_lunagram_gifts_visibility_empty(tr::now)
+		: _visibilityHidden
+		? tr::lng_lunagram_gifts_hide_all_done(
+			tr::now,
+			lt_count,
+			_visibilityApplied)
+		: tr::lng_lunagram_gifts_show_all_done(
+			tr::now,
+			lt_count,
+			_visibilityApplied);
+	if (!Lunagram::IsChatLocked(&_peer->session(), _peer->id)) {
+		_window->uiShow()->showToast(error.isEmpty() ? message : message + '\n' + error);
+	}
+	_visibilityGifts.clear();
+	_visibilityOffsets.clear();
+	_visibilityIdentities.clear();
+	_all.filter = std::nullopt;
+	_all.allLoaded = false;
+	for (auto &[_, entries] : _perCollection) {
+		entries.filter = std::nullopt;
+		entries.allLoaded = false;
+	}
+	_api.request(base::take(_loadMoreRequestId)).cancel();
+	_collectionsLoadedCallback = nullptr;
 	loadMore();
 }
 
@@ -664,7 +953,7 @@ void InnerWidget::loadMore() {
 			| (collectionId ? Flag::f_collection_id : Flag())),
 		_peer->input(),
 		MTP_int(collectionId),
-		MTP_string(filterChanged ? QString() : _offset),
+		MTP_string(filterChanged ? QString() : _entries->offset),
 		MTP_int(kPerPage)
 	)).done([=](const MTPpayments_SavedStarGifts &result) {
 		const auto &data = result.data();
@@ -690,6 +979,11 @@ void InnerWidget::loadMore() {
 
 void InnerWidget::loaded(const MTPpayments_SavedStarGifts &result) {
 	const auto &data = result.data();
+	const auto filterChanged = _entries->filter != _descriptor.current().filter;
+	if (filterChanged) {
+		_entries->pageOffsets.clear();
+		_entries->allLoaded = false;
+	}
 
 	_loadMoreRequestId = 0;
 	_collectionsLoadedCallback = nullptr;
@@ -697,7 +991,13 @@ void InnerWidget::loaded(const MTPpayments_SavedStarGifts &result) {
 		_notifyEnabled.fire(mtpIsTrue(*enabled));
 	}
 	if (const auto next = data.vnext_offset()) {
-		_offset = qs(*next);
+		_entries->offset = qs(*next);
+		if (_entries->offset.isEmpty()
+			|| _entries->pageOffsets.contains(_entries->offset)) {
+			_entries->allLoaded = true;
+		} else {
+			_entries->pageOffsets.emplace(_entries->offset);
+		}
 	} else {
 		_entries->allLoaded = true;
 	}
@@ -730,6 +1030,7 @@ void InnerWidget::loaded(const MTPpayments_SavedStarGifts &result) {
 			_list->push_back({
 				.gift = std::move(*parsed),
 				.descriptor = std::move(descriptor),
+				.order = int(_list->size()),
 			});
 			hasUnique = (parsed->info.unique != nullptr);
 		}
@@ -742,6 +1043,18 @@ void InnerWidget::loaded(const MTPpayments_SavedStarGifts &result) {
 
 	if (hasUnique) {
 		Ui::PreloadUniqueGiftResellPrices(&_peer->session());
+	}
+	if (!_localPins.empty()
+		&& !descriptor.collectionId
+		&& !filter.skipsSomething()
+		&& !_entries->allLoaded) {
+		auto missing = _localPins;
+		for (const auto &entry : *_list) {
+			missing.remove(Lunagram::GiftIdentity(entry.gift));
+		}
+		if (!missing.empty()) {
+			loadMore();
+		}
 	}
 }
 
@@ -758,6 +1071,7 @@ void InnerWidget::markInCollection(const Data::SavedStarGift &gift) {
 }
 
 void InnerWidget::refreshButtons() {
+	applyLocalPins();
 	_viewsForWidth = 0;
 	_viewsFromRow = 0;
 	_viewsTillRow = 0;
@@ -800,9 +1114,9 @@ void InnerWidget::validateButtons() {
 		return;
 	}
 	const auto padding = st::giftBoxPadding;
-	const auto vskip = (_collectionsTabs && !_collectionsTabs->isHidden())
+	const auto vskip = controlsHeight() + ((_collectionsTabs && !_collectionsTabs->isHidden())
 		? (padding.top() + _collectionsTabs->height() + padding.top())
-		: padding.bottom();
+		: padding.bottom());
 	const auto row = _single.height() + st::giftBoxGiftSkip.y();
 	const auto totalRows = (int(_list->size()) + _perRow - 1) / _perRow;
 	const auto fromRow = std::clamp(
@@ -1188,6 +1502,17 @@ void InnerWidget::showMenuFor(not_null<GiftButton*> button, QPoint point) {
 	const auto collectionId = _descriptor.current().collectionId;
 	entry.pinnedSavedGifts = collectionId > 0 ? nullptr : pinnedSavedGifts();
 	_menu = base::make_unique_q<Ui::PopupMenu>(this, st::popupMenuWithIcons);
+	{
+		const auto gift = (*_list)[index].gift;
+		const auto pinned = _localPins.contains(Lunagram::GiftIdentity(gift));
+		const auto addAction = Ui::Menu::CreateAddActionCallback(_menu);
+		addAction(
+			pinned
+				? tr::lng_lunagram_gifts_unpin_local(tr::now)
+				: tr::lng_lunagram_gifts_pin_local(tr::now),
+			[=] { toggleLocalPin(gift); },
+			pinned ? &st::menuIconUnpin : &st::menuIconPin);
+	}
 	if (_peer->canManageGifts() && !_collections.empty()) {
 		const auto &gift = (*_list)[index].gift;
 		const auto addAction = Ui::Menu::CreateAddActionCallback(_menu);
@@ -1722,6 +2047,11 @@ int InnerWidget::resizeGetHeight(int width) {
 	} else {
 		result += padding.bottom();
 	}
+	if (_visibilityControls) {
+		_visibilityControls->resizeToWidth(available);
+		_visibilityControls->moveToLeft(padding.left(), result);
+		result += controlsHeight();
+	}
 
 	const auto singlew = std::min(
 		((available + skipw) / _perRow) - skipw,
@@ -1948,6 +2278,7 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 	const auto collectionId = _descriptor.current().collectionId;
 	const auto canDrag = !_addingToCollectionId
 		&& _peer->canManageGifts()
+		&& _localPins.empty()
 		&& _list->size() > 1
 		&& (collectionId
 			|| (!collectionId
@@ -2240,9 +2571,9 @@ int InnerWidget::giftFromGlobalPos(const QPoint &p) const {
 		return -1;
 	}
 	const auto padding = st::giftBoxPadding;
-	const auto vskip = (_collectionsTabs && !_collectionsTabs->isHidden())
+	const auto vskip = controlsHeight() + ((_collectionsTabs && !_collectionsTabs->isHidden())
 		? (padding.top() + _collectionsTabs->height() + padding.top())
-		: padding.bottom();
+		: padding.bottom());
 	const auto row = (l.y() >= vskip)
 		? ((l.y() - vskip) / (_single.height() + st::giftBoxGiftSkip.y()))
 		: -1;
@@ -2265,9 +2596,9 @@ QPoint InnerWidget::posFromIndex(int index) const {
 		return {};
 	}
 	const auto padding = st::giftBoxPadding;
-	const auto vskip = (_collectionsTabs && !_collectionsTabs->isHidden())
+	const auto vskip = controlsHeight() + ((_collectionsTabs && !_collectionsTabs->isHidden())
 		? (padding.top() + _collectionsTabs->height() + padding.top())
-		: padding.bottom();
+		: padding.bottom());
 	const auto available = width() - padding.left() - padding.right();
 	const auto skipw = st::giftBoxGiftSkip.x();
 	const auto skiph = st::giftBoxGiftSkip.y();

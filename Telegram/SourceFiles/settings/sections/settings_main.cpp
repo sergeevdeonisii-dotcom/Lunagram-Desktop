@@ -54,6 +54,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/sections/settings_credits.h"
 #include "settings/sections/settings_folders.h"
 #include "settings/sections/settings_information.h"
+#include "settings/sections/settings_lunagram.h"
 #include "settings/sections/settings_notifications.h"
 #include "settings/settings_power_saving.h"
 #include "settings/sections/settings_premium.h"
@@ -393,6 +394,19 @@ void BuildSectionButtons(SectionBuilder &builder) {
 		.targetSection = ChatId(),
 		.icon = { &st::menuIconChatBubble },
 		.keywords = { u"themes"_q, u"appearance"_q, u"stickers"_q },
+	});
+
+	builder.addSectionButton({
+		.title = tr::lng_lunagram_settings(),
+		.targetSection = LunagramId(),
+		.icon = { &st::menuIconPalette },
+		.keywords = { u"lunagram"_q, u"glass"_q },
+	});
+	builder.addSectionButton({
+		.title = tr::lng_lunagram_advanced(),
+		.targetSection = LunagramAdvancedId(),
+		.icon = { &st::menuIconManage },
+		.keywords = { u"lunagram"_q, u"local"_q },
 	});
 
 	{ // Folders

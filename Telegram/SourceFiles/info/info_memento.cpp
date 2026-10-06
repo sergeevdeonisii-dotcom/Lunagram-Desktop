@@ -35,6 +35,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_saved_sublist.h"
 #include "data/data_session.h"
 #include "main/main_session.h"
+#include "lunagram/chat_vault.h"
+#include "window/window_session_controller.h"
 
 namespace Info {
 
@@ -296,6 +298,9 @@ object_ptr<Window::SectionWidget> Memento::createWidget(
 		not_null<Window::SessionController*> controller,
 		Window::Column column,
 		const QRect &geometry) {
+	if (!Lunagram::AllowVaultInfo(&controller->session(), content())) {
+		return nullptr;
+	}
 	auto wrap = (column == Window::Column::Third)
 		? Wrap::Side
 		: Wrap::Narrow;
@@ -311,6 +316,9 @@ object_ptr<Window::SectionWidget> Memento::createWidget(
 object_ptr<Ui::LayerWidget> Memento::createLayer(
 		not_null<Window::SessionController*> controller,
 		const QRect &geometry) {
+	if (!Lunagram::AllowVaultInfo(&controller->session(), content())) {
+		return nullptr;
+	}
 	if (geometry.width() >= LayerWidget::MinimalSupportedWidth()) {
 		return object_ptr<LayerWidget>(controller, this);
 	}

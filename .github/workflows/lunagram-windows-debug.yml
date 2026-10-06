@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: lunagram-windows-debug-${{ github.ref }}
+  group: lunagram-windows-debug-refs/heads/${{ github.event.repository.default_branch }}
   cancel-in-progress: false
 
 jobs:
@@ -63,6 +63,13 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Validate Lunagram source integration
+        working-directory: ${{ env.LUNAGRAM_SOURCE_ROOT }}
+        run: |
+          git fetch --no-tags --depth=1 origin fb2e33209517e1a34637d837bfadb3783f2fd59c
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned stable base could not be fetched.' }
+          & .\Telegram\build\lunagram\features.tests.ps1
+
       - name: Initialize x64 MSVC 14.44 and Windows SDK
         uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
         with:
@@ -111,6 +118,10 @@ jobs:
 
       - name: Trim intermediate dependency files
         run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Prune'
+
+      - name: Compile and execute protected storage codec tests
+        if: ${{ !inputs.prepare_only }}
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\private_codec.tests.ps1"'
 
       - name: Save build tools
         if: steps.tools-cache.outputs.cache-hit != 'true'

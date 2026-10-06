@@ -34,6 +34,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/core_settings.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
+#include "lunagram/chat_vault.h"
+#include "lunagram/composer.h"
 #include "history/view/history_view_draw_to_reply.h"
 #include "history/view/controls/history_view_rich_draft_preview.h"
 #include "ui/emoji_config.h"
@@ -466,6 +468,10 @@ HistoryWidget::HistoryWidget(
 	}, _field->lifetime());
 	_field->cancelled(
 	) | rpl::on_next([=] {
+		if (_lunagramPendingSend && _lunagramPendingSend->pending()) {
+			_lunagramPendingSend->cancel();
+			return;
+		}
 		if (_peer && _peer->amMonoforumAdmin()) {
 			QWidget::setEnabled(false);
 			crl::on_main([=] {
@@ -492,8 +498,18 @@ HistoryWidget::HistoryWidget(
 	}, _field->lifetime());
 	_field->changes(
 	) | rpl::on_next([=] {
+		if (_lunagramPendingSend) {
+			_lunagramPendingSend->cancel();
+		}
 		fieldChanged();
 	}, _field->lifetime());
+	Lunagram::VaultChanges(&session()) | rpl::on_next([=] {
+		if (_lunagramPendingSend
+			&& _history
+			&& Lunagram::IsChatLocked(&session(), _history->peer->id)) {
+			_lunagramPendingSend->cancel();
+		}
+	}, lifetime());
 	Data::AmPremiumValue(&session()) | rpl::on_next([=] {
 		checkCharsLimitation();
 		updateAiButtonVisibility();
@@ -566,6 +582,7 @@ HistoryWidget::HistoryWidget(
 		return false;
 	});
 	InitMessageFieldFade(_field, st::historyComposeField.textBg);
+	Lunagram::InitComposerEffects(&session(), _field, [=] { updateField(); });
 
 	setupFastButtonMode();
 	initAiButton();
@@ -3040,6 +3057,9 @@ void HistoryWidget::showHistory(
 		PeerId peerId,
 		MsgId showAtMsgId,
 		const Window::SectionShow &params) {
+	if (_lunagramPendingSend && (!_peer || _peer->id != peerId)) {
+		_lunagramPendingSend->cancel();
+	}
 	_pinnedClickedId = FullMsgId();
 	_minPinnedId = std::nullopt;
 	_showAtMsgParams = {};
@@ -3698,6 +3718,9 @@ void HistoryWidget::trackThreadFieldVisibility() {
 }
 
 void HistoryWidget::setEditMsgId(MsgId msgId) {
+	if (_lunagramPendingSend && msgId != _editMsgId) {
+		_lunagramPendingSend->cancel();
+	}
 	unregisterDraftSources();
 	_editMsgId = msgId;
 	if (!msgId) {
@@ -5798,7 +5821,17 @@ void HistoryWidget::sendTextWithTags(
 		TextWithTags textWithTags,
 		bool useWebPageDraft,
 		Api::SendOptions options,
-		Fn<void()> done) {
+		Fn<void()> done,
+		bool undoApproved) {
+	if (!undoApproved
+		&& _lunagramPendingSend
+		&& _lunagramPendingSend->pending()) {
+		if (options.scheduled) {
+			_lunagramPendingSend->cancel();
+		} else {
+			return;
+		}
+	}
 	if (!options.scheduled) {
 		_cornerButtons.clearReplyReturns();
 	}
@@ -5818,7 +5851,12 @@ void HistoryWidget::sendTextWithTags(
 	const auto withPaymentApproved = [=](int approved) {
 		auto copy = options;
 		copy.starsApproved = approved;
-		sendTextWithTags(textWithTags, useWebPageDraft, copy, done);
+		sendTextWithTags(
+			textWithTags,
+			useWebPageDraft,
+			copy,
+			done,
+			undoApproved);
 	};
 	if (showSendMessageError(
 			message.textWithTags,
@@ -5829,8 +5867,54 @@ void HistoryWidget::sendTextWithTags(
 		return;
 	}
 
-	const auto nextLocalMessageId = session().data().nextLocalMessageId();
 	const auto hasText = !message.textWithTags.text.trimmed().isEmpty();
+	const auto &sendOptions = message.action.options;
+	const auto undoEligible = !undoApproved
+		&& hasText
+		&& useWebPageDraft
+		&& !ephemeral
+		&& !sendOptions.scheduled
+		&& !sendOptions.shortcutId
+		&& !sendOptions.welcomeTemplate
+		&& !sendOptions.ttlSeconds
+		&& !sendOptions.price
+		&& !sendOptions.starsApproved
+		&& !sendOptions.stakeNanoTon
+		&& !sendOptions.suggest
+		&& !_editMsgId
+		&& !_creatingBotTopic
+		&& !isComposeBoxOpen()
+		&& _forwardPanel->items().empty()
+		&& (textWithTags == _field->getTextWithAppliedMarkdown());
+	if (undoEligible) {
+		const auto action = message.action;
+		const auto reply = replyTo();
+		const auto draft = _field->getTextWithTags();
+		const auto preview = message.webPage;
+		auto pending = Lunagram::QueueUndoSend(controller(), crl::guard(this, [=] {
+			if (_history != action.history
+				|| Lunagram::IsChatLocked(&session(), action.history->peer->id)
+				|| isHidden()
+				|| _field->isHidden()
+				|| _editMsgId
+				|| !canWriteMessage()
+				|| shownRichMessage()
+				|| !_forwardPanel->items().empty()
+				|| _field->getTextWithTags() != draft
+				|| replyTo() != reply
+				|| (_preview ? _preview->draft() : Data::WebPageDraft()) != preview
+				|| prepareSendAction(options) != action) {
+				controller()->showToast(tr::lng_lunagram_undo_cancelled(tr::now));
+				return;
+			}
+			sendTextWithTags(textWithTags, useWebPageDraft, options, done, true);
+		}));
+		if (pending) {
+			_lunagramPendingSend = std::move(pending);
+			return;
+		}
+	}
+	const auto nextLocalMessageId = session().data().nextLocalMessageId();
 
 	if (hasText
 		&& message.webPage.url.isEmpty()
@@ -10243,6 +10327,9 @@ void HistoryWidget::replyToMessage(FullReplyTo id) {
 void HistoryWidget::replyToMessage(
 		not_null<HistoryItem*> item,
 		FullReplyTo fields) {
+	if (_lunagramPendingSend) {
+		_lunagramPendingSend->cancel();
+	}
 	if (isJoinChannel()) {
 		return;
 	}
@@ -10516,6 +10603,9 @@ bool HistoryWidget::cancelReplyOrSuggest(bool lastKeyboardUsed) {
 }
 
 bool HistoryWidget::cancelReply(bool lastKeyboardUsed) {
+	if (_lunagramPendingSend && _replyTo) {
+		_lunagramPendingSend->cancel();
+	}
 	bool wasReply = false;
 	if (_replyTo) {
 		wasReply = true;
@@ -11131,7 +11221,10 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	}
 	p.setInactive(
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
-	p.fillRect(myrtlrect(0, backy, width(), backh), st::historyReplyBg);
+	Lunagram::PaintComposerBackground(
+		p,
+		myrtlrect(0, backy, width(), backh),
+		&session());
 
 	const auto media = (!_previewDrawPreview && drawMsgText)
 		? drawMsgText->media()

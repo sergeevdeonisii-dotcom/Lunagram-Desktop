@@ -758,6 +758,7 @@ private:
 	void init();
 	void setupShortcuts();
 	void setupScreenshotProtection();
+	void lockLunagramViews();
 	void checkOpenedFilter();
 	void suggestArchiveAndMute();
 	void activateFirstChatsFilter();

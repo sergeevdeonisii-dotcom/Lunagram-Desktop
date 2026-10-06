@@ -7,6 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_context_menu.h"
 
+#include "lunagram/chat_vault.h"
+#include "lunagram/local_tools.h"
+#include "lunagram/message_history.h"
+
 #include "api/api_attached_stickers.h"
 #include "api/api_editing.h"
 #include "api/api_global_privacy.h"
@@ -123,6 +127,55 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace HistoryView {
 namespace {
+
+void ShowLunagramEditHistory(
+		not_null<ListWidget*> list,
+		FullMsgId itemId) {
+	const auto owner = &list->controller()->session().data();
+	const auto item = owner->message(itemId);
+	if (!item || Lunagram::IsChatLocked(
+			&list->controller()->session(),
+			item->history()->peer->id)) {
+		return;
+	}
+	const auto versions = owner->lunagramHistory().versions(itemId);
+	auto text = tr::marked(tr::lng_lunagram_history_local_only(tr::now));
+	for (const auto &version : versions) {
+		text.append(u"\n\n"_q).append(tr::bold(QLocale().toString(
+			QDateTime::fromSecsSinceEpoch(version.date),
+			QLocale::ShortFormat)));
+		text.append('\n').append(version.text);
+	}
+	if (versions.empty()
+		|| versions.back().text != item->originalText().text) {
+		text.append(u"\n\n"_q).append(tr::bold(
+			tr::lng_lunagram_history_current(tr::now)));
+		text.append('\n').append(item->originalText());
+	}
+	list->controller()->show(Ui::MakeInformBox({
+		.text = std::move(text),
+		.title = tr::lng_lunagram_edit_history(),
+	}));
+}
+
+void RemoveLunagramLocalCopy(
+		not_null<ListWidget*> list,
+		FullMsgId itemId) {
+	const auto owner = &list->controller()->session().data();
+	const auto item = owner->message(itemId);
+	if (!item || !item->lunagramRetainedDeleted()
+		|| Lunagram::IsChatLocked(
+			&list->controller()->session(),
+			item->history()->peer->id)) {
+		return;
+	}
+	if (owner->lunagramHistory().forget(itemId)) {
+		item->destroy();
+	} else {
+		list->controller()->showToast(
+			tr::lng_lunagram_history_storage_error(tr::now));
+	}
+}
 
 constexpr auto kRescheduleLimit = 20;
 constexpr auto kTagNameLimit = 12;
@@ -834,6 +887,7 @@ bool AddReplyToMessageAction(
 	const auto topic = item ? item->topic() : nullptr;
 	const auto peer = item ? item->history()->peer.get() : nullptr;
 	if (!item
+		|| item->lunagramRetainedDeleted()
 		|| (!item->isRegular() && !CanReplyToEphemeral(item))
 		|| IsAnchoredEphemeral(item)
 		|| (context != Context::History
@@ -1759,6 +1813,16 @@ void FillContextMenuItems(
 	const auto view = request.view;
 	const auto item = request.item;
 	const auto itemId = item ? item->fullId() : FullMsgId();
+	if ((item && Lunagram::IsChatLocked(
+			&list->controller()->session(),
+			item->history()->peer->id))
+		|| ranges::any_of(request.selectedItems, [&](const SelectedItem &selected) {
+			return Lunagram::IsChatLocked(
+				&list->controller()->session(),
+				selected.msgId.peer);
+		})) {
+		return;
+	}
 	const auto lnkPhoto = link
 		? reinterpret_cast<PhotoData*>(
 			link->property(kPhotoLinkMediaProperty).toULongLong())
@@ -1776,6 +1840,30 @@ void FillContextMenuItems(
 		&& Api::WhoReactedExists(item, Api::WhoReactedList::All);
 
 	AddReplyToMessageAction(result, request, list);
+	if (item && request.selectedItems.empty()) {
+		Lunagram::AddChatToolsActions(
+			list->controller(),
+			item->history()->peer,
+			Ui::Menu::CreateAddActionCallback(result));
+		const auto versions = item->history()->owner()
+			.lunagramHistory().versions(itemId);
+		if (!versions.empty()) {
+			result->addAction(
+				tr::lng_lunagram_edit_history(tr::now),
+				crl::guard(list, [=] {
+					ShowLunagramEditHistory(list, itemId);
+				}),
+				&st::menuIconEdit);
+		}
+		if (item->lunagramRetainedDeleted()) {
+			result->addAction(
+				tr::lng_lunagram_remove_local(tr::now),
+				crl::guard(list, [=] {
+					RemoveLunagramLocalCopy(list, itemId);
+				}),
+				&st::menuIconDelete);
+		}
+	}
 	if (item) {
 		const auto media = item->media();
 		const auto document = media ? media->document() : nullptr;
@@ -1785,6 +1873,7 @@ void FillContextMenuItems(
 			? Data::CanSendAnything(topic)
 			: Data::CanSendAnything(peer);
 		if (canSendText
+			&& !item->lunagramRetainedDeleted()
 			&& (item->isRegular() || CanReplyToEphemeral(item))
 			&& document
 			&& document->isVoiceMessage()) {
@@ -1966,6 +2055,13 @@ void FillContextMenuItems(
 base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		not_null<ListWidget*> list,
 		const ContextMenuRequest &request) {
+	const auto peer = list->controller()->activeChatCurrent().peer();
+	if ((peer && Lunagram::IsChatLocked(&list->controller()->session(), peer->id))
+		|| (request.item && Lunagram::IsChatLocked(
+			&list->controller()->session(),
+			request.item->history()->peer->id))) {
+		return nullptr;
+	}
 	const auto link = request.link;
 	const auto item = request.item;
 	const auto itemId = item ? item->fullId() : FullMsgId();

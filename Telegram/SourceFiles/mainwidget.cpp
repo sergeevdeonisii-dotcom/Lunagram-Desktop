@@ -63,6 +63,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_scheduled_section.h"
 #include "history/view/history_view_service_message.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
 #include "lang/lang_cloud_manager.h"
 #include "inline_bots/inline_bot_layout_item.h"
 #include "ui/boxes/confirm_box.h"
@@ -1434,6 +1435,10 @@ void MainWidget::showHistory(
 		PeerId peerId,
 		const SectionShow &params,
 		MsgId showAtMsgId) {
+	if (peerId && Lunagram::IsChatLocked(&session(), peerId)) {
+		Lunagram::ShowVaultBox(_controller);
+		return;
+	}
 	if (peerId && _controller->window().locked()) {
 		if (params.activation != anim::activation::background) {
 			_controller->window().activate();
@@ -1866,6 +1871,10 @@ bool MainWidget::saveSectionInStack(
 void MainWidget::showSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params) {
+	if (!Lunagram::AllowVaultSection(&session(), memento.get())) {
+		Lunagram::ShowVaultBox(_controller);
+		return;
+	}
 	if (_mainSection && _mainSection->showInternal(
 			memento.get(),
 			params)) {
@@ -1902,6 +1911,16 @@ void MainWidget::showSection(
 
 void MainWidget::updateColumnLayout() {
 	updateWindowAdaptiveLayout();
+}
+
+void MainWidget::clearLunagramViewCaches() {
+	_showAnimation = nullptr;
+	_thirdSectionFromStack = nullptr;
+	destroyThirdSection();
+	if (_player) {
+		_player->hide(anim::type::instant);
+	}
+	_playerPlaylist->hideIgnoringEnterEvents();
 }
 
 Window::SectionSlideParams MainWidget::prepareThirdSectionAnimation(Window::SectionWidget *section) {
@@ -1989,6 +2008,10 @@ Window::SectionSlideParams MainWidget::prepareDialogsAnimation() {
 void MainWidget::showNewSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params) {
+	if (!Lunagram::AllowVaultSection(&session(), memento.get())) {
+		Lunagram::ShowVaultBox(_controller);
+		return;
+	}
 	using Column = Window::Column;
 
 	if (_controller->window().locked()) {

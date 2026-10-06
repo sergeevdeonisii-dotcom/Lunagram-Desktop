@@ -118,6 +118,7 @@ private:
 		const QByteArray &content);
 	bool loadFromCustomFile(const QString &filePath);
 	void loadFromContent(const QByteArray &content);
+	void applyLunagramTranslations();
 	void loadFromCustomContent(
 		const QString &absolutePath,
 		const QString &relativePath,

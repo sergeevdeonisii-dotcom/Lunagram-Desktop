@@ -49,6 +49,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_forum_topic.h"
 #include "mainwidget.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
+#include "base/event_filter.h"
 #include "lang/lang_numbers_animation.h"
 #include "menu/menu_send.h"
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
@@ -121,6 +123,23 @@ WrapWidget::WrapWidget(
 , _controller(createController(window, memento->content()))
 , _topShadow(this)
 , _bottomShadow(this) {
+	base::install_event_filter(this, [=](not_null<QEvent*> event) {
+		if (event->type() == QEvent::Show && !Lunagram::AllowVaultInfoController(
+				&_controller->session(),
+				_controller.get())) {
+			hide();
+			return base::EventFilterResult::Cancel;
+		}
+		return base::EventFilterResult::Continue;
+	});
+	Lunagram::VaultChanges(&window->session()) | rpl::on_next([=] {
+		if (!Lunagram::AllowVaultInfoController(
+				&_controller->session(),
+				_controller.get())) {
+			_topBarMenu = nullptr;
+			hide();
+		}
+	}, lifetime());
 	_topShadow->toggleOn(
 		topShadowToggledValue(
 		) | rpl::filter([](bool shown) {
@@ -245,6 +264,9 @@ void WrapWidget::injectActiveProfile(Dialogs::Key key) {
 }
 
 void WrapWidget::injectActivePeerProfile(not_null<PeerData*> peer) {
+	if (Lunagram::IsChatLocked(&_controller->session(), peer->id)) {
+		return;
+	}
 	const auto firstPeer = hasStackHistory()
 		? _historyStack.front().section->peer()
 		: _controller->peer();
@@ -647,6 +669,13 @@ bool WrapWidget::requireTopBarSearch() const {
 
 bool WrapWidget::showBackFromStackInternal(
 		const Window::SectionShow &params) {
+	if (hasStackHistory() && !Lunagram::AllowVaultInfo(
+			&_controller->session(),
+			_historyStack.back().section.get())) {
+		_historyStack.clear();
+		Lunagram::ShowVaultBox(_controller->parentController());
+		return true;
+	}
 	if (hasStackHistory()) {
 		auto last = std::move(_historyStack.back());
 		_historyStack.pop_back();
@@ -868,6 +897,12 @@ bool WrapWidget::showInternal(
 		not_null<Window::SectionMemento*> memento,
 		const Window::SectionShow &params) {
 	if (auto infoMemento = dynamic_cast<Memento*>(memento.get())) {
+		if (!Lunagram::AllowVaultInfo(
+				&_controller->session(),
+				infoMemento->content())) {
+			Lunagram::ShowVaultBox(_controller->parentController());
+			return true;
+		}
 		if (_mementoTaken || infoMemento->stackSize() > 1) {
 			return false;
 		}
@@ -959,6 +994,10 @@ bool WrapWidget::returnToFirstStackFrame(
 void WrapWidget::showNewContent(
 		not_null<ContentMemento*> memento,
 		const Window::SectionShow &params) {
+	if (!Lunagram::AllowVaultInfo(&_controller->session(), memento)) {
+		Lunagram::ShowVaultBox(_controller->parentController());
+		return;
+	}
 	const auto saveToStack = (_content != nullptr)
 		&& (params.way == Window::SectionShow::Way::Forward);
 	const auto needAnimation = (_content != nullptr)

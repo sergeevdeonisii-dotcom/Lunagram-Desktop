@@ -75,6 +75,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_account.h"
 #include "storage/storage_domain.h"
 #include "data/components/recent_peers.h"
+#include "lunagram/chat_vault.h"
 #include "data/components/sponsored_messages.h"
 #include "data/data_session.h"
 #include "data/data_channel.h"
@@ -520,6 +521,17 @@ Widget::Widget(
 	_inner->searchRequests(
 	) | rpl::on_next([=](SearchRequestDelay delay) {
 		searchRequested(delay);
+	}, lifetime());
+	Lunagram::VaultChanges(&session()) | rpl::on_next([=] {
+		_showAnimation = nullptr;
+		_widthAnimationCache = QPixmap();
+		_suggestions = nullptr;
+		_hidingSuggestions.clear();
+		_searchSuggestionsLocked = false;
+		applySearchState(SearchState());
+		updateSuggestions(anim::type::instant);
+		updateControlsVisibility(true);
+		repaint();
 	}, lifetime());
 	_inner->completeHashtagRequests(
 	) | rpl::on_next([=](const QString &tag) {
@@ -2111,8 +2123,12 @@ bool Widget::searchActive() const {
 
 void Widget::updateSuggestions(anim::type animated) {
 	const auto suggest = (searchActive() || _searchSuggestionsLocked)
+		&& !Lunagram::VaultRestricted(&session())
 		&& !_searchState.inChat
 		&& (_inner->state() == WidgetState::Default);
+	if (Lunagram::VaultRestricted(&session())) {
+		animated = anim::type::instant;
+	}
 	if (anim::Disabled() || !session().data().chatsListLoaded()) {
 		animated = anim::type::instant;
 	}

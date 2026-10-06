@@ -715,6 +715,25 @@ Notification::Notification(
 	}, lifetime());
 
 	show();
+	if (_item && _reaction.empty()) {
+		const auto options = manager->getNotificationOptions(
+			_item,
+			Data::ItemNotificationType::Message);
+		const auto reminder = _fromScheduled && _history->peer->isSelf();
+		const auto title = reminder
+			? tr::lng_notification_reminder(tr::now)
+			: _topic
+			? (_topic->title() + u" ("_q + _history->peer->name() + ')')
+			: _history->peer->name();
+		manager->recordPostedNotification(
+			_item,
+			title,
+			_item->toPreview({
+				.hideSender = reminder,
+				.generateImages = false,
+				.spoilerLoginCode = options.spoilerLoginCode,
+			}).text);
+	}
 }
 
 void Notification::updateReplyGeometry() {

@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/win/specific_win.h"
 #include "data/data_forum_topic.h"
 #include "data/data_saved_sublist.h"
+#include "data/data_session.h"
 #include "data/data_peer.h"
 #include "history/history.h"
 #include "history/history_item.h"
@@ -914,7 +915,16 @@ Manager::~Manager() = default;
 void Manager::doShowNativeNotification(
 		NotificationInfo &&info,
 		Ui::PeerUserpicView &userpicView) {
-	_private->showNotification(std::move(info), userpicView);
+	const auto peer = info.peer;
+	const auto itemId = info.itemId;
+	const auto title = info.title;
+	const auto preview = info.message;
+	const auto record = info.journalMessage;
+	if (_private->showNotification(std::move(info), userpicView) && record) {
+		if (const auto item = peer->owner().message(peer->id, itemId)) {
+			recordPostedNotification(item, title, tr::marked(preview));
+		}
+	}
 }
 
 void Manager::doClearAllFast() {

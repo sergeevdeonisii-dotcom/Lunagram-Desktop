@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/shortcuts.h"
 #include "core/update_channel.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
 #include "data/data_session.h"
 #include "data/data_forum_topic.h"
 #include "data/data_user.h"
@@ -884,6 +885,12 @@ void MainWindow::updateControlsGeometry() {
 void MainWindow::updateTitle() {
 	if (Core::Quitting()) {
 		return;
+	}
+	if (const auto controller = _controller->sessionController()) {
+		if (Lunagram::VaultRestricted(&controller->session())) {
+			setTitle(tr::lng_lunagram_vault_title(tr::now));
+			return;
+		}
 	}
 
 	const auto suffix = nativeTitleSuffix();

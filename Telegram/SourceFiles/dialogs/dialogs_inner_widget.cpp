@@ -64,6 +64,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "base/options.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
 #include "lottie/lottie_icon.h"
 #include "settings/settings_common.h"
 #include "storage/storage_account.h"
@@ -312,6 +313,18 @@ InnerWidget::InnerWidget(
 , _freezeTimer([=] { _shownList->unfreeze(); update(); }) {
 	setAttribute(Qt::WA_OpaquePaintEvent, true);
 	setAccessibleName(tr::lng_recent_chats(tr::now));
+	Lunagram::VaultChanges(&session()) | rpl::on_next([=] {
+		_menu = nullptr;
+		clearSelection();
+		clearPressed();
+		clearSearchResults();
+		clearPreviewResults();
+		_filterResultsGlobal.clear();
+		refreshFilterResults();
+		refreshShownList();
+		refresh();
+		_searchRequests.fire(SearchRequestDelay::Instant);
+	}, lifetime());
 
 	_communityViewable.setRepaint([=] { update(); });
 
@@ -1033,6 +1046,11 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 			bool selected,
 			bool mayBeActive) {
 		const auto &key = row->key();
+		if (const auto peer = key.peer()) {
+			if (Lunagram::IsChatLocked(&session(), peer->id)) {
+				return;
+			}
+		}
 		const auto active = mayBeActive && isRowActive(row, activeEntry);
 		const auto history = key.history();
 		const auto forum = history && history->peer->displayAsForum();
@@ -2677,6 +2695,9 @@ const std::vector<Key> &InnerWidget::pinnedChatsOrder() const {
 }
 
 void InnerWidget::checkReorderPinnedStart(QPoint localPosition) {
+	if (_vaultShownList) {
+		return;
+	}
 	if (!_pressed
 		|| _dragging
 		|| (_state != WidgetState::Default)
@@ -3319,6 +3340,11 @@ void InnerWidget::handleChatListEntryRefreshes() {
 			return !info || !info->collapsedInDialogs();
 		}
 	}) | rpl::on_next([=](const Event &event) {
+		if (_vaultShownList) {
+			refreshShownList();
+			refresh();
+			return;
+		}
 		const auto offset = dialogsOffset();
 		const auto from = offset + event.moved.from;
 		const auto to = offset + event.moved.to;
@@ -3406,6 +3432,13 @@ int InnerWidget::defaultRowTop(not_null<Row*> row) const {
 void InnerWidget::repaintDialogRow(
 		FilterId filterId,
 		not_null<Row*> row) {
+	if (_vaultShownList) {
+		const auto shown = _shownList->getRow(row->key());
+		if (!shown) {
+			return;
+		}
+		row = shown;
+	}
 	if (!animatedPreviewCached(row)) {
 		invalidateCachedRow(RowsCacheKey(row->entry()));
 	}
@@ -3786,7 +3819,7 @@ void InnerWidget::updateSelectedRow(Key key) {
 }
 
 void InnerWidget::refreshShownList() {
-	const auto list = _savedSublists
+	auto list = _savedSublists
 		? _savedSublists->chatsList()->indexed()
 		: _openedForum
 		? _openedForum->topicsList()->indexed()
@@ -3795,11 +3828,48 @@ void InnerWidget::refreshShownList() {
 		: _filterId
 		? session().data().chatsFilters().chatsList(_filterId)->indexed()
 		: session().data().chatsList(_openedFolder)->indexed();
+	if (Lunagram::VaultRestricted(&session())) {
+		auto keys = std::vector<Key>();
+		for (const auto row : *list) {
+			const auto peer = row->key().peer();
+			if (!peer || !Lunagram::IsChatLocked(&session(), peer->id)) {
+				keys.push_back(row->key());
+			}
+		}
+		if (!_vaultShownList || keys != _vaultShownKeys
+			|| _vaultFilterId != _filterId) {
+			clearSelection();
+			clearPressed();
+			stopReorderPinned();
+			_vaultShownKeys = std::move(keys);
+			_vaultFilterId = _filterId;
+			auto filtered = std::make_unique<IndexedList>(SortMode::Add, _filterId);
+			for (const auto key : _vaultShownKeys) {
+				filtered->addToEnd(key);
+			}
+			_shownList->unfreeze();
+			_shownList = filtered.get();
+			_vaultShownList = std::move(filtered);
+			_activeSubItemsRow = nullptr;
+		}
+		list = not_null(_vaultShownList.get());
+	} else if (_vaultShownList) {
+		clearSelection();
+		clearPressed();
+		stopReorderPinned();
+		_shownList = list;
+		_vaultShownList = nullptr;
+		_vaultShownKeys.clear();
+		_activeSubItemsRow = nullptr;
+	}
 	if (_shownList != list) {
 		_shownList->unfreeze();
 		_shownList = list;
 		_shownList->updateHeights(_narrowRatio);
 		_activeSubItemsRow = nullptr;
+	}
+	if (_vaultShownList) {
+		_shownList->updateHeights(_narrowRatio);
 	}
 }
 
@@ -3950,6 +4020,11 @@ void InnerWidget::contextMenuEvent(QContextMenuEvent *e) {
 	if (!row.key) {
 		return;
 	}
+	if (const auto peer = row.key.peer()) {
+		if (Lunagram::IsChatLocked(&session(), peer->id)) {
+			return;
+		}
+	}
 
 	_menuRow = row;
 	if (_pressButton != Qt::LeftButton) {
@@ -3973,6 +4048,9 @@ void InnerWidget::contextMenuEvent(QContextMenuEvent *e) {
 				.filterId = _filterId,
 			},
 			addAction);
+		if (const auto peer = row.key.peer()) {
+			Lunagram::AddChatVaultActions(_controller, peer, addAction);
+		}
 	}
 	QObject::connect(_menu.get(), &QObject::destroyed, [=] {
 		if (_menuRow.key) {
@@ -4308,7 +4386,11 @@ void InnerWidget::refreshFilterResults() {
 		: TextUtilities::PrepareSearchWords(_filter);
 	_filterResults.clear();
 	const auto append = [&](not_null<IndexedList*> list) {
-		const auto results = list->filtered(words);
+		auto results = list->filtered(words);
+		results.erase(ranges::remove_if(results, [&](not_null<Row*> row) {
+			const auto peer = row->key().peer();
+			return peer && Lunagram::IsChatLocked(&session(), peer->id);
+		}), end(results));
 		auto top = filteredHeight();
 		auto i = _filterResults.insert(
 			end(_filterResults),
@@ -4336,6 +4418,11 @@ void InnerWidget::refreshFilterResults() {
 		}
 	}
 	for (const auto &[key, row] : _filterResultsGlobal) {
+		if (const auto peer = key.peer()) {
+			if (Lunagram::IsChatLocked(&session(), peer->id)) {
+				continue;
+			}
+		}
 		if (!ranges::contains(_filterResults, key, &FilterResult::key)) {
 			const auto height = filteredHeight();
 			_filterResults.emplace_back(row.get());
@@ -4346,6 +4433,11 @@ void InnerWidget::refreshFilterResults() {
 }
 
 void InnerWidget::appendToFiltered(Key key) {
+	if (const auto peer = key.peer()) {
+		if (Lunagram::IsChatLocked(&session(), peer->id)) {
+			return;
+		}
+	}
 	for (const auto &row : _filterResults) {
 		if (row.key() == key) {
 			return;
@@ -4689,6 +4781,7 @@ void InnerWidget::searchReceived(
 		? _searchState.inChat
 		: Key(_openedForum->history());
 	if (inject
+		&& !Lunagram::IsChatLocked(&session(), inject->history()->peer->id)
 		&& (globalSearch
 			|| !_searchState.inChat
 			|| inject->history() == _searchState.inChat.history())) {
@@ -4706,6 +4799,9 @@ void InnerWidget::searchReceived(
 	auto &results = toPreview ? _previewResults : _searchResults;
 	for (const auto &item : messages) {
 		const auto history = item->history();
+		if (Lunagram::IsChatLocked(&session(), history->peer->id)) {
+			continue;
+		}
 		if (toPreview || !uniquePeers || !hasHistoryInResults(history)) {
 			const auto index = int(results.size());
 			const auto repaint = toPreview
@@ -4745,6 +4841,9 @@ void InnerWidget::peerSearchReceived(Api::PeerSearchResult result) {
 		appendToFiltered(peer->owner().history(peer));
 	}
 	const auto inlist = [&](not_null<PeerData*> peer) {
+		if (Lunagram::IsChatLocked(&session(), peer->id)) {
+			return true;
+		}
 		if (const auto history = peer->owner().historyLoaded(peer)) {
 			// Skip existing chats.
 			return history->inChatList();
@@ -4811,6 +4910,7 @@ void InnerWidget::editOpenedFilter() {
 }
 
 void InnerWidget::refresh(bool toTop) {
+	refreshShownList();
 	_rowsScrollCache.clear();
 	_cachedRows.clear();
 	_activeSubItemsRow = nullptr;

@@ -58,6 +58,10 @@ namespace Iv {
 struct RichPage;
 } // namespace Iv
 
+namespace Lunagram {
+class PendingSend;
+} // namespace Lunagram
+
 namespace Support {
 class Autocomplete;
 struct Contact;
@@ -459,7 +463,8 @@ private:
 		TextWithTags textWithTags,
 		bool useWebPageDraft,
 		Api::SendOptions options,
-		Fn<void()> done);
+		Fn<void()> done,
+		bool undoApproved = false);
 	void sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
@@ -953,6 +958,7 @@ private:
 	std::shared_ptr<Ui::ChatStyle> _fieldChatStyle;
 	bool _cmdStartShown = false;
 	object_ptr<Ui::InputField> _field;
+	std::shared_ptr<Lunagram::PendingSend> _lunagramPendingSend;
 	std::unique_ptr<HistoryView::Controls::RichDraftPreview> _richDraftPreview;
 	base::unique_qptr<Ui::RpWidget> _fieldDisabled;
 	std::unique_ptr<Ui::RpWidget> _sendRestriction;

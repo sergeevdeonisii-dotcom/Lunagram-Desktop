@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer.h"
 #include "data/data_photo.h"
 #include "data/data_document.h"
+#include "lunagram/lunagram_settings.h"
 
 #include <QtCore/QBuffer>
 
@@ -353,6 +354,9 @@ bool Should(
 		const Full &data,
 		Source source,
 		not_null<DocumentData*> document) {
+	if (Lunagram::Enabled(&document->session(), Lunagram::Flag::Emergency)) {
+		return false;
+	}
 	if (document->sticker() || document->isGifv()) {
 		return true;
 	} else if (document->isVoiceMessage()
@@ -368,6 +372,9 @@ bool Should(
 		const Full &data,
 		not_null<PeerData*> peer,
 		not_null<DocumentData*> document) {
+	if (Lunagram::Enabled(&document->session(), Lunagram::Flag::Emergency)) {
+		return false;
+	}
 	if (document->sticker()) {
 		return true;
 	}
@@ -395,6 +402,9 @@ bool Should(
 bool Should(
 		const Full &data,
 		not_null<DocumentData*> document) {
+	if (Lunagram::Enabled(&document->session(), Lunagram::Flag::Emergency)) {
+		return false;
+	}
 	if (document->sticker()) {
 		return true;
 	}
@@ -407,6 +417,9 @@ bool Should(
 		const Full &data,
 		not_null<PeerData*> peer,
 		not_null<PhotoData*> photo) {
+	if (Lunagram::Enabled(&photo->session(), Lunagram::Flag::Emergency)) {
+		return false;
+	}
 	const auto override = data.peerOverride(peer->id);
 	if (override == Override::ForceDeny) {
 		return false;
@@ -427,6 +440,9 @@ bool ShouldAutoPlay(
 		const Full &data,
 		not_null<PeerData*> peer,
 		not_null<DocumentData*> document) {
+	if (Lunagram::Enabled(&document->session(), Lunagram::Flag::Emergency)) {
+		return false;
+	}
 	if (document->sticker()) {
 		return true;
 	}
@@ -450,6 +466,9 @@ bool ShouldAutoPlay(
 		const Full &data,
 		not_null<PeerData*> peer,
 		not_null<PhotoData*> photo) {
+	if (Lunagram::Enabled(&photo->session(), Lunagram::Flag::Emergency)) {
+		return false;
+	}
 	if (!photo->hasVideo()) {
 		return false;
 	}

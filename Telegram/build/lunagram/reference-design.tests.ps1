@@ -178,6 +178,9 @@ foreach ($event in @('Show', 'Hide', 'ShowToParent', 'HideToParent', 'ParentChan
 Check ($observeSource -match 'QObject::destroyed' -and $observeSource -match 'removeEventFilter\(filter\)' -and $observeSource -match 'filter->deleteLater\(\)' -and $observeSource -match 'QObject::disconnect\(destroyed\)') 'Caption observer cleanup detaches filters and destruction callbacks'
 $queueChrome = Block-Source $window 'void MainWindow::queueReferenceChromeUpdate\(\)\s*\{' 'MainWindow::queueReferenceChromeUpdate'
 Check ($queueChrome -match '_referenceChromeUpdateScheduled' -and $queueChrome -match 'InvokeQueued\(this,' -and $queueChrome -match 'refreshTitleWidget\(\)' -and $queueChrome -match 'recountGeometryConstraints\(\)') 'Caption frame changes are coalesced until the current layout event completes'
+Check ($designStyle -notmatch 'WindowTitle\(defaultWindowTitle\)' -and $window -match 'ReferenceWindowTitle\(\)' -and $window -match 'st::lunagramReferenceTitleHeight') 'Zero-height title uses a persistent native style copy, not cross-module unnamed-icon inheritance'
+$buildHelper = Read-Source 'Telegram/build/lunagram/windows-debug.ps1'
+Check ($buildHelper.IndexOf("'td_ui_styles'") -ge 0 -and $buildHelper.IndexOf("'td_ui_styles'") -lt $buildHelper.IndexOf('$allTargets =')) 'Native style generation fails fast before independent object compilation'
 
 $field = Style-Block $helpersStyle 'lunagramReferenceComposeField'
 $action = Style-Block $helpersStyle 'lunagramReferenceComposeButton'

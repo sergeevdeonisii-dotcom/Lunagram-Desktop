@@ -161,6 +161,7 @@ try {
             $freeGiB = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1KB / 1GB
             $parallelism = Get-BuildParallelism ([Environment]::ProcessorCount) $freeGiB
             Write-Host "Native compilation workers: $parallelism; available memory: $([math]::Round($freeGiB, 1)) GiB."
+            Invoke-BuildCommand 'cmake' @('--build', 'out', '--config', 'Debug', '--target', 'td_ui_styles', '--parallel', "$parallelism")
             $allTargets = @(& ninja -C out -f build-Debug.ninja -t targets all)
             if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate native object targets.' }
             $changedSources = @(git diff --name-only fb2e33209517e1a34637d837bfadb3783f2fd59c HEAD -- Telegram/SourceFiles |

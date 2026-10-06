@@ -41,7 +41,4 @@ lunagramTrafficLightLeft: 12px;
 lunagramTrafficLightTop: 15px;
 lunagramTrafficLightGlyphSize: 6px;
 lunagramTrafficLightGlyphWidth: 1px;
-lunagramReferenceWindowTitle: WindowTitle(defaultWindowTitle) {
-	height: 0px;
-	shadow: false;
-}
+lunagramReferenceTitleHeight: 0px;

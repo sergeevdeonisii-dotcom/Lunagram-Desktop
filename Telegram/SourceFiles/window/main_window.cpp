@@ -72,6 +72,16 @@ constexpr auto kSaveWindowPositionTimeout = crl::time(1000);
 
 using Core::WindowPosition;
 
+[[nodiscard]] const style::WindowTitle &ReferenceWindowTitle() {
+	static const auto result = [] {
+		auto result = st::defaultWindowTitle;
+		result.height = st::lunagramReferenceTitleHeight;
+		result.shadow = false;
+		return result;
+	}();
+	return result;
+}
+
 [[nodiscard]] QRect ScreenAvailableGeometry(not_null<const QWidget*> widget) {
 	// When the last monitor is removed Qt keeps delivering resize events
 	// while QGuiApplication has no screens at all, so screen() is nullptr.
@@ -690,7 +700,7 @@ int MainWindow::computeMinHeight() const {
 
 void MainWindow::refreshTitleWidget() {
 	if (_windowChrome && !_windowChrome->isHidden()) {
-		setTitleStyle(st::lunagramReferenceWindowTitle);
+		setTitleStyle(ReferenceWindowTitle());
 		setNativeFrame(false);
 		_titleShadow.destroy();
 		return;

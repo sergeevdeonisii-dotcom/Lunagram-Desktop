@@ -463,7 +463,7 @@ void Application::run() {
 	_openInMediaViewRequests.events(
 	) | rpl::on_next([=](Media::View::OpenRequest &&request) {
 		const auto item = request.item();
-		const auto peer = item ? item->history()->peer : request.peer();
+		const auto peer = item ? item->history()->peer.get() : request.peer();
 		const auto controller = request.controller();
 		if ((peer && Lunagram::IsChatLocked(&peer->session(), peer->id))
 			|| (!peer && controller

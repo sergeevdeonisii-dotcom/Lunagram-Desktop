@@ -34,6 +34,7 @@ public:
 		QPointer<QWidget> parentOverride = nullptr,
 		std::optional<QPoint> positionOverride = {});
 	void cancelScheduled();
+	void clear();
 
 private:
 	void showScheduled();

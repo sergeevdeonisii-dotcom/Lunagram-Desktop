@@ -1968,7 +1968,7 @@ void SessionController::setupScreenshotProtection() {
 
 void SessionController::lockLunagramViews() {
 	_chatSwitchProcess = nullptr;
-	_chatPreviewManager = std::make_unique<ChatPreviewManager>(this);
+	_chatPreviewManager->clear();
 	_pendingOpenDocumentId = 0;
 	_pendingOpenPhoto = {};
 	hideSpecialLayer(anim::type::instant);

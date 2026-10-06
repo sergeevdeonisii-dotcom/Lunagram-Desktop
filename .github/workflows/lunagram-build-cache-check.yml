@@ -1,0 +1,66 @@
+name: Lunagram compiler cache check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [lunagram/windows-port]
+    paths:
+      - .github/workflows/lunagram-build-cache-check.yml
+      - Telegram/build/lunagram/compiler-cache.ps1
+      - Telegram/build/lunagram/compiler-cache.tests.ps1
+      - Telegram/build/lunagram/compiler_cache_probe/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lunagram-compiler-cache-check
+  cancel-in-progress: false
+
+jobs:
+  cache-check:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      LUNAGRAM_BUILD_ROOT: ${{ github.workspace }}\CacheCheck
+      LUNAGRAM_SOURCE_ROOT: ${{ github.workspace }}
+      LUNAGRAM_DIAGNOSTICS: ${{ github.workspace }}\CacheCheck\diagnostics
+      LUNAGRAM_CACHE_KEY: probe-msvc1444-sdk26100-v1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
+        with:
+          arch: x64
+          sdk: '10.0.26100.0'
+          toolset: '14.44'
+      - name: Check cache helper
+        run: '& .\Telegram\build\lunagram\compiler-cache.tests.ps1'
+      - name: Install verified BuildCache
+        run: '& .\Telegram\build\lunagram\compiler-cache.ps1 -Stage Setup'
+      - name: Restore probe cache from the previous runner
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ env.LUNAGRAM_BUILD_ROOT }}\compiler-cache-v1
+          key: probe-${{ env.LUNAGRAM_COMPILER_CACHE_KEY }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            probe-${{ env.LUNAGRAM_COMPILER_CACHE_KEY }}-
+      - name: Check PCH hits, header and source invalidation
+        run: '& .\Telegram\build\lunagram\compiler-cache.ps1 -Stage Probe -Required'
+      - name: Save probe cache for a fresh-runner verification
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ env.LUNAGRAM_BUILD_ROOT }}\compiler-cache-v1
+          key: probe-${{ env.LUNAGRAM_COMPILER_CACHE_KEY }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: Compiler-cache-check-${{ github.run_number }}
+          path: ${{ env.LUNAGRAM_DIAGNOSTICS }}\*
+          if-no-files-found: warn
+          retention-days: 7

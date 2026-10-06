@@ -8,6 +8,11 @@ on:
         type: boolean
         required: false
         default: false
+      compiler_cache:
+        description: Reuse verified MSVC compilation results between builds
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   contents: read
@@ -87,7 +92,9 @@ jobs:
           "LUNAGRAM_CACHE_KEY=win-x64-msvc1444-sdk26100-qt6-debug-v1-$prepareHash-$qtHash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Check build-helper path preservation
-        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.tests.ps1"'
+        run: |
+          & "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.tests.ps1"
+          & "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\compiler-cache.tests.ps1"
 
       - name: Restore build tools
         id: tools-cache
@@ -157,6 +164,26 @@ jobs:
             ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\cache_keys\[qQ]t[_-]*
           key: qt-${{ env.LUNAGRAM_CACHE_KEY }}
 
+      - name: Install pinned compiler cache
+        id: compiler-cache-setup
+        if: ${{ !inputs.prepare_only && inputs.compiler_cache }}
+        continue-on-error: true
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\compiler-cache.ps1" -Stage Setup'
+
+      - name: Restore compiled object cache
+        if: steps.compiler-cache-setup.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ env.LUNAGRAM_BUILD_ROOT }}\compiler-cache-v1
+          key: ${{ env.LUNAGRAM_COMPILER_CACHE_KEY }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ env.LUNAGRAM_COMPILER_CACHE_KEY }}-
+
+      - name: Verify native compiler cache compatibility
+        if: steps.compiler-cache-setup.outcome == 'success'
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\compiler-cache.ps1" -Stage Probe'
+
       - name: Configure native Lunagram Debug
         if: ${{ !inputs.prepare_only }}
         run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Configure'
@@ -174,6 +201,19 @@ jobs:
       - name: Check isolated native startup
         if: ${{ !inputs.prepare_only }}
         run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Smoke'
+
+      - name: Save verified compiled object cache
+        if: ${{ success() && env.LUNAGRAM_COMPILER_CACHE_READY == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ env.LUNAGRAM_BUILD_ROOT }}\compiler-cache-v1
+          key: ${{ env.LUNAGRAM_COMPILER_CACHE_KEY }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Report compiler cache hits and misses
+        if: ${{ always() && steps.compiler-cache-setup.outcome == 'success' }}
+        continue-on-error: true
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\compiler-cache.ps1" -Stage Stats'
 
       - name: Upload native Debug package
         if: ${{ always() && !inputs.prepare_only && steps.native-package.conclusion == 'success' }}

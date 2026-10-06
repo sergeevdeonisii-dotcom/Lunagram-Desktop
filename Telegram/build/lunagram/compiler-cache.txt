@@ -1,0 +1,31 @@
+Lunagram Windows compiler cache
+
+The Debug workflow enables BuildCache 0.33.0 through CMake's C and C++
+compiler launchers. Existing MSVC precompiled headers and memory-bounded
+worker counts are preserved. No source timestamps or Ninja files are changed.
+
+Setup verifies the pinned tool archive. Before enabling caching, a native
+probe checks PCH/object cache hits, /showIncludes dependencies, linking,
+execution, and invalidation after source and PCH-header changes. Failed
+setup or compatibility checks leave the ordinary compiler path available.
+
+Cache keys include the runner image, compiler binary, SDK, dependency key,
+include/library paths, and helper version. Only the compiler cache directory
+is uploaded, not CMakeCache.txt, build commands, or account profiles. The
+compressed cache is capped at 3 GiB; individual entries at 1 GiB. Caching
+uses STRICT accuracy and does not use hard links or remote third-party storage.
+
+The first application build populates the cache and may take longer than
+the existing uncached build. Later builds can reuse unchanged compilation
+results. Do not quote the tiny probe's speedup as a full-application speedup.
+Compare build-timing.json and compiler-cache-stats.txt across application
+builds. A changed runner image/toolchain intentionally starts a fresh cache.
+
+To bypass the accelerator, dispatch Lunagram Windows Debug with
+compiler_cache=false. The launcher settings are then explicitly cleared.
+The standalone compiler cache check can run without rebuilding Lunagram
+and without access to its application credentials.
+
+Upstream MSVC PCH support:
+https://gitlab.com/bits-n-bites/buildcache/-/releases/v0.32.0
+https://gitlab.com/bits-n-bites/buildcache/-/blob/v0.33.0/src/wrappers/msvc_wrapper.cpp

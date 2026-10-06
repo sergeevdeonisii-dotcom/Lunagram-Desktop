@@ -130,7 +130,18 @@ try {
             New-Item -ItemType File -Force -Path (Join-Path $queryRoot 'codemodel-v2') | Out-Null
             Push-Location (Join-Path $sourceRoot 'Telegram')
             try {
-                Invoke-BuildCommand 'python' @(
+                $cacheArguments = @()
+                if ($env:LUNAGRAM_COMPILER_CACHE_READY -eq 'true' -and $env:LUNAGRAM_COMPILER_LAUNCHER) {
+                    Assert-BuildPath $env:LUNAGRAM_COMPILER_LAUNCHER
+                    if (-not (Test-Path -LiteralPath $env:LUNAGRAM_COMPILER_LAUNCHER -PathType Leaf)) {
+                        throw 'The verified compiler cache executable is missing.'
+                    }
+                    $launcher = $env:LUNAGRAM_COMPILER_LAUNCHER.Replace('\', '/')
+                    $cacheArguments = @('-D', "CMAKE_C_COMPILER_LAUNCHER=$launcher", '-D', "CMAKE_CXX_COMPILER_LAUNCHER=$launcher")
+                } else {
+                    $cacheArguments = @('-D', 'CMAKE_C_COMPILER_LAUNCHER=', '-D', 'CMAKE_CXX_COMPILER_LAUNCHER=')
+                }
+                Invoke-BuildCommand 'python' (@(
                     'configure.py', '-G', 'Ninja Multi-Config', 'qt6',
                     '-D', "TDESKTOP_API_ID=$env:TDESKTOP_API_ID",
                     '-D', "TDESKTOP_API_HASH=$env:TDESKTOP_API_HASH",
@@ -142,7 +153,7 @@ try {
                     '-D', 'CMAKE_CXX_FLAGS_DEBUG=/Ob0 /Od /RTC1',
                     '-D', 'DESKTOP_APP_DISABLE_AUTOUPDATE=ON',
                     '-D', 'DESKTOP_APP_DISABLE_CRASH_REPORTS=ON'
-                )
+                ) + $cacheArguments)
             } finally {
                 Pop-Location
             }
@@ -158,6 +169,7 @@ try {
             Assert-ExecutableArtifact @($targetInfo.artifacts | ForEach-Object { $_.path.Replace('\', '/') })
         }
         'Build' {
+            $buildTimer = [Diagnostics.Stopwatch]::StartNew()
             $freeGiB = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1KB / 1GB
             $parallelism = Get-BuildParallelism ([Environment]::ProcessorCount) $freeGiB
             Write-Host "Native compilation workers: $parallelism; available memory: $([math]::Round($freeGiB, 1)) GiB."
@@ -184,6 +196,12 @@ try {
             $preflightArguments = @('-C', 'out', '-f', 'build-Debug.ninja', '-k', '0', '-j', "$parallelism") + $objectTargets
             Invoke-BuildCommand 'ninja' $preflightArguments
             Invoke-BuildCommand 'cmake' @('--build', 'out', '--config', 'Debug', '--target', 'Telegram', '--parallel', "$parallelism")
+            $buildTimer.Stop()
+            [ordered] @{
+                elapsedSeconds = [math]::Round($buildTimer.Elapsed.TotalSeconds, 1)
+                workers = $parallelism
+                compilerCache = ($env:LUNAGRAM_COMPILER_CACHE_READY -eq 'true')
+            } | ConvertTo-Json | Set-Content -LiteralPath "$diagnosticsRoot\build-timing.json" -Encoding utf8
         }
         'Smoke' {
             $executable = Join-Path $packageRoot 'Lunagram\Lunagram.exe'

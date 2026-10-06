@@ -135,6 +135,7 @@ $modulePaths = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'Telegram
 $cppPaths = @($modulePaths + @('Telegram/SourceFiles/settings/sections/settings_lunagram.cpp', 'Telegram/SourceFiles/settings/sections/settings_lunagram.h') +
     @($newPaths | Where-Object { $_ -match '^Telegram/SourceFiles/.+\.(cpp|h)$' }) | Sort-Object -Unique)
 $cmake = Read-Source 'Telegram/CMakeLists.txt'
+Check ($cmake -match 'if\s*\(WIN32\)\s+set\(output_name "Lunagram"\)\s+endif\(\)\s+if\s*\(CMAKE_GENERATOR STREQUAL Xcode\)\s+set\(bundle_identifier_plist') 'Windows executable name is selected before final output properties'
 foreach ($path in $cppPaths) {
     $relative = $path.Substring('Telegram/SourceFiles/'.Length)
     Check ($cmake -match ('(?m)^\s*' + [regex]::Escape($relative) + '\s*$')) "Missing CMake source registration: $relative"

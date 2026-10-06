@@ -74,6 +74,26 @@ function Assert-NativeExecutable([string] $Path) {
     }
 }
 
+function Get-BuildParallelism([int] $Processors, [double] $FreeGiB) {
+    if ($Processors -ge 4 -and $FreeGiB -ge 10) { return 4 }
+    return 2
+}
+
+function Assert-ExecutableArtifact([string[]] $Paths) {
+    if ($Paths -notcontains 'Debug/Lunagram.exe') {
+        throw 'CMake must produce Debug/Lunagram.exe before native compilation starts.'
+    }
+}
+
+function Get-NativeOutput([string] $Directory) {
+    foreach ($name in @('Lunagram.exe', 'Telegram.exe')) {
+        $path = Join-Path $Directory $name
+        Assert-BuildPath $path
+        if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+    }
+    throw 'The compiled native executable was not found.'
+}
+
 foreach ($path in @($sourceRoot, $diagnosticsRoot, $packageRoot, $librariesRoot, $thirdPartyRoot)) {
     Assert-BuildPath $path
 }
@@ -105,6 +125,9 @@ try {
                 $env:TDESKTOP_API_HASH -notmatch '^[a-fA-F0-9]{32}$') {
                 throw 'App-owned TDESKTOP_API_ID and TDESKTOP_API_HASH are required.'
             }
+            $queryRoot = Join-Path $sourceRoot 'out\.cmake\api\v1\query'
+            New-Item -ItemType Directory -Force -Path $queryRoot | Out-Null
+            New-Item -ItemType File -Force -Path (Join-Path $queryRoot 'codemodel-v2') | Out-Null
             Push-Location (Join-Path $sourceRoot 'Telegram')
             try {
                 Invoke-BuildCommand 'python' @(
@@ -123,8 +146,21 @@ try {
             } finally {
                 Pop-Location
             }
+            $replyRoot = Join-Path $sourceRoot 'out\.cmake\api\v1\reply'
+            $modelFile = Get-ChildItem -LiteralPath $replyRoot -Filter 'codemodel-v2-*.json' -File |
+                Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+            if (-not $modelFile) { throw 'CMake did not return its configured output model.' }
+            $model = Get-Content -LiteralPath $modelFile.FullName -Raw | ConvertFrom-Json
+            $configuration = $model.configurations | Where-Object name -eq 'Debug'
+            $target = $configuration.targets | Where-Object name -eq 'Telegram'
+            if (-not $target) { throw 'The configured native Debug target was not found.' }
+            $targetInfo = Get-Content -LiteralPath (Join-Path $replyRoot $target.jsonFile) -Raw | ConvertFrom-Json
+            Assert-ExecutableArtifact @($targetInfo.artifacts | ForEach-Object { $_.path.Replace('\', '/') })
         }
         'Build' {
+            $freeGiB = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1KB / 1GB
+            $parallelism = Get-BuildParallelism ([Environment]::ProcessorCount) $freeGiB
+            Write-Host "Native compilation workers: $parallelism; available memory: $([math]::Round($freeGiB, 1)) GiB."
             $allTargets = @(& ninja -C out -f build-Debug.ninja -t targets all)
             if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate native object targets.' }
             $changedSources = @(git diff --name-only fb2e33209517e1a34637d837bfadb3783f2fd59c HEAD -- Telegram/SourceFiles |
@@ -144,16 +180,19 @@ try {
             })
             if (-not $objectTargets.Count) { throw 'Changed native object targets were not found.' }
             Write-Host "Checking $($objectTargets.Count) changed native object targets before linking the full application."
-            $preflightArguments = @('-C', 'out', '-f', 'build-Debug.ninja', '-k', '0', '-j', '2') + $objectTargets
+            $preflightArguments = @('-C', 'out', '-f', 'build-Debug.ninja', '-k', '0', '-j', "$parallelism") + $objectTargets
             Invoke-BuildCommand 'ninja' $preflightArguments
-            Invoke-BuildCommand 'cmake' @('--build', 'out', '--config', 'Debug', '--target', 'Telegram', '--parallel', '2')
+            Invoke-BuildCommand 'cmake' @('--build', 'out', '--config', 'Debug', '--target', 'Telegram', '--parallel', "$parallelism")
         }
         'Smoke' {
-            $executable = Join-Path $outputRoot 'Lunagram.exe'
+            $executable = Join-Path $packageRoot 'Lunagram\Lunagram.exe'
             Assert-NativeExecutable $executable
             $smokeRoot = Join-Path $buildRoot 'smoke-profile'
             Assert-BuildPath $smokeRoot
             New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+            $smokeData = Join-Path $smokeRoot 'tdata'
+            New-Item -ItemType Directory -Force -Path $smokeData | Out-Null
+            '{"skip-url-scheme-register":true}' | Set-Content -LiteralPath (Join-Path $smokeData 'experimental_options.json') -Encoding utf8
             $process = Start-Process -FilePath $executable -ArgumentList @('-many', '-workdir', "`"$smokeRoot`"") -WindowStyle Hidden -PassThru
             try {
                 $exited = $process.WaitForExit(15000)
@@ -161,6 +200,10 @@ try {
                     throw "Lunagram exited during its isolated startup check (exit code $($process.ExitCode))."
                 }
                 'The native executable remained running through the isolated 15-second startup check.' | Set-Content -LiteralPath "$diagnosticsRoot\smoke.log" -Encoding utf8
+                $infoPath = Join-Path $packageRoot 'Lunagram\BUILD-INFO.json'
+                $info = Get-Content -LiteralPath $infoPath -Raw | ConvertFrom-Json
+                $info.startupVerified = $true
+                $info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $infoPath -Encoding utf8
             } finally {
                 if (-not $process.HasExited) {
                     $currentProcess = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
@@ -175,14 +218,11 @@ try {
             }
         }
         'Package' {
-            $executable = Join-Path $outputRoot 'Lunagram.exe'
-            if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
-                throw 'The native Lunagram.exe build output was not found.'
-            }
+            $executable = Get-NativeOutput $outputRoot
             Assert-NativeExecutable $executable
             $applicationRoot = Join-Path $packageRoot 'Lunagram'
             New-Item -ItemType Directory -Force -Path $applicationRoot | Out-Null
-            Copy-Item -LiteralPath $executable -Destination $applicationRoot
+            Copy-Item -LiteralPath $executable -Destination (Join-Path $applicationRoot 'Lunagram.exe')
             foreach ($dll in Get-ChildItem -LiteralPath $outputRoot -File -Filter '*.dll') {
                 Copy-Item -LiteralPath $dll.FullName -Destination $applicationRoot
             }
@@ -210,6 +250,7 @@ try {
                 upstreamVersion = '7.2.9'
                 configuration = 'Debug'
                 architecture = 'x64'
+                startupVerified = $false
                 repository = $env:GITHUB_REPOSITORY
                 commit = $env:GITHUB_SHA
                 run = $env:GITHUB_RUN_NUMBER

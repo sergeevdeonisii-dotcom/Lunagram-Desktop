@@ -160,19 +160,21 @@ jobs:
         run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Configure'
 
       - name: Compile native executable
+        id: native-build
         if: ${{ !inputs.prepare_only }}
         run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Build'
+
+      - name: Package executable and license notices
+        id: native-package
+        if: ${{ !inputs.prepare_only }}
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Package'
 
       - name: Check isolated native startup
         if: ${{ !inputs.prepare_only }}
         run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Smoke'
 
-      - name: Package executable and license notices
-        if: ${{ !inputs.prepare_only }}
-        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Package'
-
       - name: Upload native Debug package
-        if: ${{ !inputs.prepare_only }}
+        if: ${{ always() && !inputs.prepare_only && steps.native-package.conclusion == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Lunagram-Windows-x64-Debug-${{ github.run_number }}

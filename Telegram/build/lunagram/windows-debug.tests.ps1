@@ -4,7 +4,7 @@ $errors = $null
 $helperPath = Join-Path $PSScriptRoot 'windows-debug.ps1'
 $ast = [Management.Automation.Language.Parser]::ParseFile($helperPath, [ref] $tokens, [ref] $errors)
 if ($errors.Count -ne 0) { throw 'The Windows build helper has PowerShell syntax errors.' }
-foreach ($name in @('Assert-BuildPath', 'Test-KeepDependencyFile')) {
+foreach ($name in @('Assert-BuildPath', 'Test-KeepDependencyFile', 'Get-BuildParallelism', 'Assert-ExecutableArtifact', 'Get-NativeOutput')) {
     $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     if (-not $definition) { throw "Missing build-helper function: $name" }
     . ([ScriptBlock]::Create($definition.Extent.Text))
@@ -41,3 +41,26 @@ $rejected = $false
 try { Test-KeepDependencyFile 'D:\outside\cache_keys\qt' $libraryRoot } catch { $rejected = $true }
 if (-not $rejected) { throw 'Dependency preservation accepted a path outside the library directory.' }
 Write-Output 'Windows helper checks passed: 13 path-preservation cases and build-directory boundaries.'
+foreach ($case in @(@(4, 11, 4), @(8, 10, 4), @(4, 9, 2), @(2, 16, 2))) {
+    if ((Get-BuildParallelism $case[0] $case[1]) -ne $case[2]) { throw 'Unsafe native build parallelism.' }
+}
+Assert-ExecutableArtifact @('Debug/Lunagram.exe', 'Debug/Lunagram.pdb')
+foreach ($paths in @(@('Debug/Telegram.exe'), @('Release/Lunagram.exe'), @())) {
+    $rejected = $false
+    try { Assert-ExecutableArtifact $paths } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Unexpected native output passed the pre-compile gate.' }
+}
+function Test-Path([string] $LiteralPath, [string] $PathType) {
+    return $LiteralPath -eq $script:FixtureExecutable
+}
+foreach ($name in @('Lunagram.exe', 'Telegram.exe')) {
+    $script:FixtureExecutable = Join-Path $buildRoot "out\Debug\$name"
+    if ((Get-NativeOutput (Join-Path $buildRoot 'out\Debug')) -ne $script:FixtureExecutable) {
+        throw 'Compiled executable lookup failed.'
+    }
+}
+$script:FixtureExecutable = ''
+$rejected = $false
+try { Get-NativeOutput (Join-Path $buildRoot 'out\Debug') } catch { $rejected = $true }
+if (-not $rejected) { throw 'Missing native output was accepted.' }
+Write-Output 'Native output, fallback preservation and memory-bounded parallelism checks passed.'

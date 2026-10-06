@@ -63,7 +63,6 @@ endif()
 set_target_properties(Telegram PROPERTIES AUTOMOC ON)
 
 if (WIN32)
-    set_target_properties(Telegram PROPERTIES OUTPUT_NAME Lunagram)
     target_link_libraries(Telegram PRIVATE Crypt32)
 endif()
 
@@ -2420,6 +2419,10 @@ else()
     endif()
     set(bundle_entitlements "Telegram.entitlements")
     set(output_name "Telegram")
+endif()
+
+if (WIN32)
+    set(output_name "Lunagram")
 endif()
 
 if (CMAKE_GENERATOR STREQUAL Xcode)

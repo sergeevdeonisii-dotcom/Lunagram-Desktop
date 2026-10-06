@@ -36,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/mime_type.h"
 #include "lunagram/chat_vault.h"
 #include "lunagram/composer.h"
+#include "lunagram/design.h"
 #include "lunagram/lunagram_settings.h"
 #include "history/view/history_view_draw_to_reply.h"
 #include "history/view/controls/history_view_rich_draft_preview.h"
@@ -11537,7 +11538,7 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 		updateListSize();
 	}
 
-	Window::SectionWidget::PaintBackground(
+	Lunagram::PaintReferenceBackdrop(
 		controller(),
 		controller()->currentChatTheme(),
 		this,

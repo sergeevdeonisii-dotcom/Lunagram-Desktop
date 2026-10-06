@@ -466,6 +466,12 @@ MainWidget::MainWidget(
 				.sessionWindow = weak,
 			}));
 	});
+	_controller->defaultChatTheme()->repaintBackgroundRequests(
+	) | rpl::on_next([=] {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			update();
+		}
+	}, lifetime());
 	crl::on_main(this, [] { Lunagram::EnsureReferenceAppearance(); });
 }
 
@@ -2574,7 +2580,7 @@ void MainWidget::paintEvent(QPaintEvent *e) {
 		checkChatBackground();
 	}
 	if (Lunagram::ReferenceDesignEnabled() && !_showAnimation) {
-		Window::SectionWidget::PaintBackground(
+		Lunagram::PaintReferenceBackdrop(
 			_controller,
 			_controller->defaultChatTheme().get(),
 			this,
@@ -2879,6 +2885,9 @@ void MainWidget::updateControlsGeometry() {
 	_contentScrollAddToY = 0;
 
 	floatPlayerUpdatePositions();
+	if (Lunagram::ReferenceDesignEnabled()) {
+		update();
+	}
 }
 
 void MainWidget::destroyThirdSection() {

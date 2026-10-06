@@ -111,6 +111,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_common_adapters.h"
 
 #include <QtCore/QMimeData>
+#include <QtGui/QKeySequence>
 #include <QtGui/QTextBlock>
 #include <QtWidgets/QScrollBar>
 #include <QtWidgets/QTextEdit>
@@ -416,11 +417,10 @@ Widget::Widget(
 	.under = object_ptr<MenuUnderButton>(_searchControls),
 })
 , _searchForNarrowLayout(_searchControls, st::dialogsSearchForNarrowFilters)
+, _searchStyle(std::make_unique<style::InputField>(st::dialogsFilter))
 , _search(
 	_searchControls,
-	Lunagram::ReferenceDesignEnabled()
-		? st::dialogsReferenceFilter
-		: st::dialogsFilter,
+	*_searchStyle,
 	tr::lng_dlg_filter())
 , _chooseFromUser(
 	_searchControls,
@@ -461,6 +461,18 @@ Widget::Widget(
 			_childListShown.value(),
 			makeChildListShown)));
 	if (_layout == Layout::Main && Lunagram::ReferenceDesignEnabled()) {
+		_referenceSearchHint = base::make_unique_q<Ui::RpWidget>(_search);
+		_referenceSearchHint->setAttribute(Qt::WA_TransparentForMouseEvents);
+		_referenceSearchHint->hide();
+		_referenceSearchHint->paintRequest() | rpl::on_next([=] {
+			paintReferenceSearchHint();
+		}, _referenceSearchHint->lifetime());
+		controller->activeChatChanges() | rpl::on_next([=] {
+			_referenceSearchHint->update();
+		}, _referenceSearchHint->lifetime());
+		tr::lng_dlg_filter() | rpl::on_next([=] {
+			_referenceSearchHint->update();
+		}, _referenceSearchHint->lifetime());
 		_referenceCompose.create(this, st::lunagramReferenceNewChat);
 		_referenceCompose->setAccessibleName(tr::lng_menu_contacts(tr::now));
 		_referenceCompose->setClickedCallback([=] {
@@ -660,7 +672,12 @@ Widget::Widget(
 
 	_search->changes(
 	) | rpl::on_next([=] {
+		updateReferenceSearchHint();
 		crl::on_main(this, [=] { applySearchUpdate(); });
+	}, _search->lifetime());
+	_search->focusedChanges(
+	) | rpl::on_next([=] {
+		updateReferenceSearchHint();
 	}, _search->lifetime());
 
 	_search->submits(
@@ -2053,6 +2070,9 @@ void Widget::updateLockUnlockPosition() {
 }
 
 void Widget::updateHasFocus(not_null<QWidget*> focused) {
+	if (!_search) {
+		return;
+	}
 	const auto has = (focused == _search.data())
 		|| (focused == _search->rawTextEdit());
 	if (_searchHasFocus != has) {
@@ -4570,6 +4590,11 @@ void Widget::updateSearchFromVisibility(bool fast) {
 
 void Widget::updateControlsGeometry() {
 	const auto referenceHeader = referenceHeaderShown();
+	const auto &filterStyle = referenceHeader
+		? st::dialogsReferenceFilter
+		: st::dialogsFilter;
+	*_searchStyle = filterStyle;
+	_search->setMinHeight(filterStyle.heightMin);
 	const auto captionHeight = (_layout == Layout::Main
 		&& Lunagram::ReferenceDesignEnabled())
 		? st::lunagramWindowCaptionHeight
@@ -4578,7 +4603,8 @@ void Widget::updateControlsGeometry() {
 		_referenceCompose->setVisible(referenceHeader && !_showAnimation);
 		_referenceCompose->move(
 			width() - _referenceCompose->width(),
-			(captionHeight - _referenceCompose->height()) / 2);
+			(captionHeight - _referenceCompose->height()) / 2
+				+ st::dialogsReferenceCaptionTitleTop);
 		_referenceCompose->raise();
 	}
 	if (captionHeight) {
@@ -4610,6 +4636,7 @@ void Widget::updateControlsGeometry() {
 	_mainMenu.under->setVisible(filtersHidden && !referenceHeader);
 	_searchForNarrowLayout->setVisible(!filtersHidden);
 	if (width() < _narrowWidth) {
+		updateReferenceSearchHint();
 		return;
 	}
 	const auto filterAreaTop = captionHeight;
@@ -4635,7 +4662,9 @@ void Widget::updateControlsGeometry() {
 	const auto filterWidth = std::max(ratiow, smallw)
 		- filterLeft
 		- filterRight;
-	const auto filterAreaHeight = st::topBarHeight;
+	const auto filterAreaHeight = referenceHeader
+		? st::dialogsReferenceSearchControlsHeight
+		: st::topBarHeight;
 	_searchControls->setGeometry(0, filterAreaTop, ratiow, filterAreaHeight);
 	if (_subsectionTopBar) {
 		_subsectionTopBar->setGeometryWithNarrowRatio(
@@ -4644,13 +4673,18 @@ void Widget::updateControlsGeometry() {
 			narrowRatio);
 	}
 
-	auto filterTop = (filterAreaHeight - _search->height()) / 2;
+	const auto filterHeight = filterStyle.heightMin;
+	auto filterTop = (filterAreaHeight - filterHeight) / 2;
 	filterLeft = anim::interpolate(filterLeft, _narrowWidth, narrowRatio);
 	_search->setGeometryToLeft(
 		filterLeft,
 		filterTop,
 		filterWidth,
-		_search->height());
+		filterHeight);
+	if (_referenceSearchHint) {
+		_referenceSearchHint->setGeometry(_search->rect());
+		updateReferenceSearchHint();
+	}
 
 	auto mainMenuLeft = anim::interpolate(
 		st::dialogsFilterPadding.x(),
@@ -4959,7 +4993,7 @@ void Widget::paintEvent(QPaintEvent *e) {
 	const auto referencePanel = Lunagram::ReferenceDesignEnabled();
 	if (referencePanel && !_showAnimation) {
 		if (const auto theme = controller()->defaultChatTheme()) {
-			Window::SectionWidget::PaintBackground(
+			Lunagram::PaintReferenceBackdrop(
 				controller(),
 				theme.get(),
 				this,
@@ -4990,7 +5024,7 @@ void Widget::paintEvent(QPaintEvent *e) {
 			p.drawText(
 				QRect(
 					st::dialogsReferenceCaptionTitleSide,
-					0,
+					st::dialogsReferenceCaptionTitleTop,
 					titleWidth,
 					st::lunagramWindowCaptionHeight),
 				Qt::AlignCenter,
@@ -5062,6 +5096,74 @@ void Widget::showChatsFromNavigation() {
 	}
 	jumpToTop();
 	setInnerFocus();
+}
+
+void Widget::paintReferenceSearchHint() {
+	auto label = tr::lng_dlg_filter(tr::now);
+	if (!controller()->activeChatCurrent()
+		&& !_openedFolder
+		&& !_openedForum
+		&& !_openedCommunity
+		&& !_childList
+		&& !controller()->isLayerShown()
+		&& !controller()->window().locked()) {
+		const auto sequence = QKeySequence(u"Ctrl+F"_q);
+		const auto keys = Shortcuts::KeysCurrents();
+		const auto i = keys.find(sequence);
+		if (i != keys.end()
+			&& i->second.contains(Shortcuts::Command::Search)) {
+			label += u" ("_q
+				+ sequence.toString(QKeySequence::NativeText)
+				+ u")"_q;
+		}
+	}
+	const auto hint = _referenceSearchHint.get();
+	const auto iconSize = st::dialogsReferenceSearchIconSize;
+	const auto textWidth = std::max(
+		hint->width() - iconSize - st::dialogsReferenceSearchIconSkip,
+		0);
+	label = st::normalFont->elided(label, textWidth);
+	const auto labelWidth = st::normalFont->width(label);
+	const auto left = (hint->width() - iconSize
+		- st::dialogsReferenceSearchIconSkip - labelWidth) / 2;
+	auto p = Painter(hint);
+	st::dialogsReferenceSearchIcon.fill(p, style::rtlrect(
+		left,
+		(hint->height() - iconSize) / 2,
+		iconSize,
+		iconSize,
+		hint->width()));
+	p.setFont(st::normalFont);
+	p.setPen(st::placeholderFg);
+	p.drawText(
+		style::rtlrect(
+			left + iconSize + st::dialogsReferenceSearchIconSkip,
+			0,
+			labelWidth,
+			hint->height(),
+			hint->width()),
+		Qt::AlignVCenter | (style::RightToLeft()
+			? Qt::AlignRight
+			: Qt::AlignLeft),
+		label);
+}
+
+void Widget::updateReferenceSearchHint() {
+	if (!_referenceSearchHint) {
+		return;
+	}
+	const auto shown = referenceHeaderShown()
+		&& _search->empty()
+		&& !_search->hasFocus();
+	if (shown != !_referenceSearchHint->isHidden()) {
+		_search->setPlaceholderHidden(shown);
+		_search->finishAnimating();
+		_referenceSearchHint->setVisible(shown);
+	}
+	if (shown) {
+		_referenceSearchHint->raise();
+		_referenceSearchHint->update();
+	}
 }
 
 bool Widget::referenceHeaderShown() const {
@@ -5255,6 +5357,10 @@ Widget::~Widget() {
 	//
 	// So destroy the whole scroll now, while all the fields are alive.
 	_scroll.destroy();
+	lifetime().destroy();
+	_referenceSearchHint.reset();
+	_search->lifetime().destroy();
+	_search.destroy();
 }
 
 } // namespace Dialogs

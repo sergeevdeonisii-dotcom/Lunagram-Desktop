@@ -16,32 +16,24 @@ public static class LiquidBackground {
         using (var gzip = new GZipStream(input, CompressionMode.Decompress)) {
             document.Load(gzip);
         }
-        using (var bitmap = new Bitmap(960, 1280, PixelFormat.Format32bppArgb))
+        using (var bitmap = new Bitmap(960, 800, PixelFormat.Format32bppArgb))
         using (var graphics = Graphics.FromImage(bitmap)) {
-            graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (var gradient = new LinearGradientBrush(
                 new Rectangle(0, 0, bitmap.Width, bitmap.Height),
-                Color.FromArgb(143, 200, 148),
-                Color.FromArgb(231, 223, 185),
+                Color.FromArgb(129, 188, 130),
+                Color.FromArgb(197, 212, 173),
                 LinearGradientMode.Vertical)) {
                 gradient.InterpolationColors = new ColorBlend {
                     Colors = new[] {
-                        Color.FromArgb(143, 200, 148),
-                        Color.FromArgb(177, 211, 167),
-                        Color.FromArgb(231, 223, 185)
+                        Color.FromArgb(129, 188, 130),
+                        Color.FromArgb(162, 200, 153),
+                        Color.FromArgb(197, 212, 173)
                     },
                     Positions = new[] { 0f, 0.5f, 1f }
                 };
                 graphics.FillRectangle(gradient, 0, 0, bitmap.Width, bitmap.Height);
             }
-            using (var washPath = new GraphicsPath()) {
-                washPath.AddEllipse(-450, -400, 1400, 1550);
-                using (var wash = new PathGradientBrush(washPath)) {
-                    wash.CenterColor = Color.FromArgb(62, 244, 240, 181);
-                    wash.SurroundColors = new[] { Color.FromArgb(0, 244, 240, 181) };
-                    graphics.FillPath(wash, washPath);
-                }
-            }
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (var patternBrush = new SolidBrush(Color.FromArgb(18, 67, 111, 70))) {
                 var paths = new List<GraphicsPath>();
                 try {

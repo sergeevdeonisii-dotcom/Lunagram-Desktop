@@ -520,7 +520,7 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 	}
 	updateConnectingState();
 	if (Lunagram::ReferenceDesignEnabled()) {
-		Window::SectionWidget::PaintBackground(
+		Lunagram::PaintReferenceBackdrop(
 			_controller,
 			_controller->currentChatTheme(),
 			this,

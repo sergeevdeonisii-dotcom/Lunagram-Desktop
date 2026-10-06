@@ -19,6 +19,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class ChannelData;
 
+namespace style {
+struct InputField;
+} // namespace style
+
 namespace MTP {
 class Error;
 } // namespace MTP
@@ -206,6 +210,8 @@ private:
 	void submit();
 	void cancelSearchRequest();
 	void showChatsFromNavigation();
+	void paintReferenceSearchHint();
+	void updateReferenceSearchHint();
 	[[nodiscard]] bool referenceHeaderShown() const;
 	[[nodiscard]] PeerData *searchInPeer() const;
 	[[nodiscard]] Data::ForumTopic *searchInTopic() const;
@@ -346,7 +352,9 @@ private:
 	} _mainMenu;
 	object_ptr<Ui::IconButton> _referenceCompose = { nullptr };
 	object_ptr<Ui::IconButton> _searchForNarrowLayout;
+	std::unique_ptr<style::InputField> _searchStyle;
 	object_ptr<Ui::InputField> _search;
+	base::unique_qptr<Ui::RpWidget> _referenceSearchHint;
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _chooseFromUser;
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _jumpToDate;
 	object_ptr<Ui::CrossButton> _cancelSearch;

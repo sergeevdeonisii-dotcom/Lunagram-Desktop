@@ -67,6 +67,34 @@ base::options::toggle DialogsMuteIcon({
 		"for muted chats.",
 });
 
+bool ReferencePreviewLayout(const style::DialogRow &st, bool narrow = false) {
+	return Lunagram::ReferenceDesignEnabled()
+		&& !narrow
+		&& (&st == &st::referenceDialogRow);
+}
+
+int PreviewTop(const style::DialogRow &st, bool narrow = false) {
+	return ReferencePreviewLayout(st, narrow)
+		? (st.nameTop + st::semiboldFont->height)
+		: st.textTop;
+}
+
+int PreviewHeight(const style::DialogRow &st, bool narrow = false) {
+	const auto lineHeight = st::dialogsTextFont->height;
+	if (!ReferencePreviewLayout(st, narrow)) {
+		return lineHeight;
+	}
+	const auto pitch = std::max(
+		st::dialogsReferenceTextStyle.lineHeight,
+		st::dialogsReferenceTextStyle.font->ascent);
+	const auto available = st.height
+		- PreviewTop(st, narrow)
+		- st::dialogsReferencePreviewBottom;
+	return std::min(
+		lineHeight + pitch * (st::dialogsReferencePreviewLines - 1),
+		available);
+}
+
 const auto kPsaBadgePrefix = "cloud_lng_badge_psa_";
 
 [[nodiscard]] bool ShowUserBotIcon(not_null<UserData*> user) {
@@ -594,7 +622,7 @@ void PaintRow(
 		const auto position = rectForName.topLeft();
 		const auto skip = rowBadge.drawVerified(p, position, st);
 		rectForName.setLeft(position.x() + skip + st::dialogsChatTypeSkip);
-	} else if (from) {
+	} else if (from && !Lunagram::ReferenceDesignEnabled()) {
 		if (const auto chatTypeIcon = ChatTypeIcon(from, context)) {
 			chatTypeIcon->paint(p, rectForName.topLeft(), context.width);
 			rectForName.setLeft(rectForName.left()
@@ -602,7 +630,7 @@ void PaintRow(
 				+ st::dialogsChatTypeSkip);
 		}
 	}
-	auto texttop = context.st->textTop;
+	auto texttop = PreviewTop(*context.st, context.narrow);
 	if (const auto folder = entry->asFolder()) {
 		const auto availableWidth = PaintWideCounter(
 			p,
@@ -1251,7 +1279,7 @@ void RowPainter::Paint(
 			: Flag(0))
 		| (row->topicJumpRipple() ? Flag::TopicJumpRipple : Flag(0));
 	const auto paintItemCallback = [&](int nameleft, int namewidth) {
-		const auto texttop = context.st->textTop;
+		const auto texttop = PreviewTop(*context.st, context.narrow);
 		const auto availableWidth = PaintWideCounter(
 			p,
 			context,
@@ -1268,7 +1296,7 @@ void RowPainter::Paint(
 			nameleft,
 			texttop,
 			availableWidth,
-			st::dialogsTextFont->height);
+			PreviewHeight(*context.st, context.narrow));
 		const auto actionWasPainted = ShowSendActionInDialogs(thread)
 			? thread->sendActionPainter()->paint(
 				p,
@@ -1380,7 +1408,7 @@ void RowPainter::Paint(
 	const auto displayPinnedIcon = false;
 
 	const auto paintItemCallback = [&](int nameleft, int namewidth) {
-		const auto texttop = context.st->textTop;
+		const auto texttop = PreviewTop(*context.st, context.narrow);
 		const auto availableWidth = PaintWideCounter(
 			p,
 			context,
@@ -1393,7 +1421,7 @@ void RowPainter::Paint(
 			nameleft,
 			texttop,
 			availableWidth,
-			st::dialogsTextFont->height);
+			PreviewHeight(*context.st, context.narrow));
 		auto &view = row->itemView();
 		if (!view.prepared(item, nullptr, nullptr)) {
 			view.prepare(
@@ -1447,7 +1475,7 @@ QRect RowPainter::SendActionAnimationRect(
 	const auto &st = Row::ComputeSt(thread, filterId);
 	const auto nameleft = st.nameLeft;
 	const auto namewidth = fullWidth - nameleft - st.padding.right();
-	const auto texttop = st.textTop;
+	const auto texttop = PreviewTop(st);
 
 	const auto add = st::lineWidth - Ui::Emoji::GetCustomSkipNormal();
 	const auto height = std::max({
@@ -1455,6 +1483,9 @@ QRect RowPainter::SendActionAnimationRect(
 		add + st::normalFont->height + add,
 		add + st::dialogsMiniPreviewTop + st::dialogsMiniPreview + add,
 		st::lineWidth + Ui::Emoji::GetCustomSizeNormal() + st::lineWidth,
+		textUpdated && ReferencePreviewLayout(st)
+			? (add + PreviewHeight(st) + add)
+			: 0,
 	});
 
 	return QRect(
@@ -1471,14 +1502,78 @@ void PaintCollapsedRow(
 		const QString &text,
 		int unread,
 		const PaintContext &context) {
-	p.fillRect(
-		QRect{ 0, 0, context.width, st::dialogsImportantBarHeight },
-		context.selected ? st::dialogsBgOver : context.currentBg);
-
-	row.paintRipple(p, 0, 0, context.width);
+	const auto referenceArchive = Lunagram::ReferenceDesignEnabled()
+		&& folder
+		&& !context.narrow;
+	const auto slot = QRect(0, 0, context.width, st::dialogsImportantBarHeight);
+	p.fillRect(slot, referenceArchive
+		? context.currentBg
+		: (context.selected ? st::dialogsBgOver : context.currentBg));
+	if (referenceArchive) {
+		const auto pill = QRect(
+			st::dialogsReferenceArchiveInset,
+			(st::dialogsImportantBarHeight - st::dialogsReferenceArchiveHeight) / 2,
+			std::max(context.width - 2 * st::dialogsReferenceArchiveInset, 0),
+			st::dialogsReferenceArchiveHeight);
+		auto path = QPainterPath();
+		path.addRoundedRect(
+			pill,
+			st::dialogsReferenceArchiveRadius,
+			st::dialogsReferenceArchiveRadius);
+		p.save();
+		p.setRenderHint(QPainter::Antialiasing);
+		p.fillPath(path, context.selected
+			? st::dialogsBgOver
+			: st::filterInputInactiveBg);
+		p.setClipPath(path, Qt::IntersectClip);
+		row.paintRipple(p, 0, 0, context.width);
+		p.restore();
+	} else {
+		row.paintRipple(p, 0, 0, context.width);
+	}
 
 	const auto unreadTop = (st::dialogsImportantBarHeight - st::dialogsUnreadHeight) / 2;
-	if (!context.narrow || !folder) {
+	if (referenceArchive) {
+		const auto iconSize = st::dialogsReferenceArchiveIconSize;
+		const auto unreadReserve = unread
+			? (st::dialogsUnreadFont->width(QString::number(unread))
+				+ 2 * st::dialogsUnreadPadding
+				+ st::dialogsReferenceArchiveIconSkip)
+			: 0;
+		const auto available = std::max(
+			context.width - 2 * (st::dialogsReferenceArchiveInset + unreadReserve)
+				- iconSize - st::dialogsReferenceArchiveIconSkip,
+			0);
+		const auto label = st::normalFont->elided(text, available);
+		const auto labelWidth = st::normalFont->width(label);
+		const auto left = (context.width - iconSize
+			- st::dialogsReferenceArchiveIconSkip - labelWidth) / 2;
+		const auto color = context.selected
+			? st::dialogsArchiveFgOver
+			: st::dialogsArchiveFg;
+		st::dialogsReferenceArchiveIcon.fill(
+			p,
+			style::rtlrect(
+				left,
+				(st::dialogsImportantBarHeight - iconSize) / 2,
+				iconSize,
+				iconSize,
+				context.width),
+			color->c);
+		p.setFont(st::normalFont);
+		p.setPen(color);
+		p.drawText(
+			style::rtlrect(
+				left + iconSize + st::dialogsReferenceArchiveIconSkip,
+				0,
+				labelWidth,
+				st::dialogsImportantBarHeight,
+				context.width),
+			Qt::AlignVCenter | (style::RightToLeft()
+				? Qt::AlignRight
+				: Qt::AlignLeft),
+			label);
+	} else if (!context.narrow || !folder) {
 		p.setFont(st::semiboldFont);
 		p.setPen(st::dialogsNameFg);
 

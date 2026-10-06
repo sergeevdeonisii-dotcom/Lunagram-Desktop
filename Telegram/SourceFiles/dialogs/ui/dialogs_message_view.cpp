@@ -25,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/ui_integration.h"
 #include "lang/lang_keys.h"
 #include "lang/lang_text_entity.h"
+#include "lunagram/lunagram_settings.h"
 #include "styles/style_dialogs.h"
 
 namespace {
@@ -203,7 +204,9 @@ void MessageView::prepare(
 		auto sender = Text::Mid(preview.text, 0, senderTill);
 		TextUtilities::Trim(sender);
 		_senderCache.setMarkedText(
-			st::dialogsTextStyle,
+			Lunagram::ReferenceDesignEnabled()
+				? st::dialogsReferenceTextStyle
+				: st::dialogsTextStyle,
 			std::move(sender),
 			DialogTextOptions());
 		preview.text = Text::Mid(preview.text, senderTill);
@@ -307,7 +310,9 @@ void MessageView::prepare(
 	_hasPlainLinkAtBegin = !textToCache.entities.empty()
 		&& (textToCache.entities.front().type() == EntityType::Colorized);
 	_textCache.setMarkedText(
-		st::dialogsTextStyle,
+		Lunagram::ReferenceDesignEnabled()
+			? st::dialogsReferenceTextStyle
+			: st::dialogsTextStyle,
 		std::move(textToCache),
 		DialogTextOptions(),
 		std::move(context));
@@ -411,6 +416,14 @@ void MessageView::paint(
 		return;
 	}
 	_lastPaintGeometry = geometry;
+	const auto reference = Lunagram::ReferenceDesignEnabled()
+		&& !context.narrow;
+	if (reference) {
+		p.save();
+		p.setClipRect(
+			QRect(0, geometry.y(), context.width, geometry.height()),
+			Qt::IntersectClip);
+	}
 	p.setFont(st::dialogsTextFont);
 	p.setPen(context.active
 		? st::dialogsTextFgActive
@@ -443,22 +456,39 @@ void MessageView::paint(
 		_topics->paint(p, rect, context);
 		rect.setTop(rect.top() + context.st->topicsHeight);
 	}
-
 	auto finalRight = rect.x() + rect.width();
 	if (jump1) {
 		rect.setWidth(rect.width() - st::forumDialogJumpArrowSkip);
 		finalRight -= st::forumDialogJumpArrowSkip;
 	}
+	const auto textGeometry = rect;
+	const auto pitch = std::max(
+		_textCache.isEmpty()
+			? st::dialogsReferenceTextStyle.lineHeight
+			: _textCache.lineHeight(),
+		st::dialogsTextFont->ascent);
+	const auto previewLines = std::min(
+		1 + std::max(rect.height() - st::dialogsTextFont->height, 0) / pitch,
+		st::dialogsReferencePreviewLines);
+	const auto multiline = reference
+		&& (context.st == &st::referenceDialogRow)
+		&& (previewLines > 1);
+	static const auto ellipsisWidth = st::dialogsTextStyle.font->width(
+		kQEllipsis);
 	const auto pausedSpoiler = context.paused
 		|| On(PowerSaving::kChatSpoiler);
 	if (!_senderCache.isEmpty()) {
+		const auto senderWidth = multiline
+			? std::min(_senderCache.maxWidth(), rect.width() / 2)
+			: _senderCache.maxWidth();
 		_senderCache.draw(p, {
 			.position = rect.topLeft(),
-			.availableWidth = rect.width(),
+			.availableWidth = multiline ? senderWidth : rect.width(),
 			.palette = palette,
-			.elisionHeight = rect.height(),
+			.elisionHeight = multiline ? st::dialogsTextFont->height : rect.height(),
+			.elisionLines = reference ? 1 : 0,
 		});
-		rect.setLeft(rect.x() + _senderCache.maxWidth());
+		rect.setLeft(rect.x() + senderWidth);
 		if (!_imagesCache.empty() && !_leftIcon) {
 			const auto skip = st::dialogsMiniPreviewSkip
 				+ st::dialogsMiniPreviewRight;
@@ -491,12 +521,17 @@ void MessageView::paint(
 	}
 	for (const auto &image : _imagesCache) {
 		const auto w = st::dialogsMiniPreview + st::dialogsMiniPreviewSkip;
-		if (rect.width() < w) {
+		const auto reserved = multiline
+			? (ellipsisWidth + st::dialogsMiniPreviewRight)
+			: 0;
+		if (rect.width() < w + reserved) {
 			break;
 		}
 		const auto mini = QRect(
 			rect.x(),
-			rect.y() + st::dialogsMiniPreviewTop,
+			rect.y() + (reference
+				? ((st::dialogsTextFont->height - st::dialogsMiniPreview) / 2)
+				: st::dialogsMiniPreviewTop),
 			st::dialogsMiniPreview,
 			st::dialogsMiniPreview);
 		if (!image.data.isNull()) {
@@ -523,19 +558,32 @@ void MessageView::paint(
 	if (!_imagesCache.empty()) {
 		rect.setLeft(rect.x() + st::dialogsMiniPreviewRight);
 	}
-	// Style of _textCache.
-	static const auto ellipsisWidth = st::dialogsTextStyle.font->width(
-		kQEllipsis);
-	if (rect.width() > ellipsisWidth) {
+	if (rect.width() > ellipsisWidth
+		|| (multiline && textGeometry.width() > ellipsisWidth)) {
+		const auto firstLineSkip = std::clamp(
+			rect.x() - textGeometry.x(),
+			0,
+			std::max(textGeometry.width() - ellipsisWidth, 0));
 		_textCache.draw(p, {
-			.position = rect.topLeft(),
-			.availableWidth = rect.width(),
+			.position = multiline ? textGeometry.topLeft() : rect.topLeft(),
+			.availableWidth = multiline ? textGeometry.width() : rect.width(),
+			.geometry = multiline
+				? ::Ui::Text::GeometryDescriptor{ .layout = [=](int line) {
+					const auto skip = line ? 0 : firstLineSkip;
+					return ::Ui::Text::LineGeometry{
+						.left = skip,
+						.width = textGeometry.width() - skip,
+						.elided = line + 1 >= previewLines,
+					};
+				} }
+				: ::Ui::Text::GeometryDescriptor(),
 			.palette = palette,
 			.spoiler = Text::DefaultSpoilerCache(),
 			.now = context.now,
 			.pausedEmoji = context.paused || On(PowerSaving::kEmojiChat),
 			.pausedSpoiler = pausedSpoiler,
 			.elisionHeight = rect.height(),
+			.elisionLines = reference ? (multiline ? previewLines : 1) : 0,
 		});
 		rect.setLeft(rect.x() + _textCache.maxWidth());
 	}
@@ -545,6 +593,9 @@ void MessageView::paint(
 		(context.selected
 			? st::forumDialogJumpArrowOver
 			: st::forumDialogJumpArrow).paint(p, position, context.width);
+	}
+	if (reference) {
+		p.restore();
 	}
 }
 

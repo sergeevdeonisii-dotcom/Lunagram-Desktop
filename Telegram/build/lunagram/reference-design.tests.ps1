@@ -151,9 +151,33 @@ Check ($largeRadius -match 'static const auto result' -and $largeRadius -match '
 $messageStyle = Read-Source 'Telegram/SourceFiles/ui/chat/chat_style.cpp'
 Check ($messageStyle -match 'result\.msgBgCornersLarge,\s*BubbleRadiusLarge\(\),\s*result\.msgBg') 'Cached bubble corners preserve palette RGB and alpha'
 $design = Read-Source 'Telegram/SourceFiles/lunagram/design.cpp'
-Check ($design -match 'background\.setAlpha\(std::min\(background\.alpha\(\),\s*\d+\)\)' -and $design -notmatch 'static[^;\r\n]*(?:QColor|background|border)') 'Glass tint respects existing alpha and reads palette color on each paint'
+Check ($design -notmatch 'background\.setAlpha\(' -and $design -notmatch 'static[^;\r\n]*(?:QColor|background|border)') 'Glass tint retains the selected palette alpha and reads color on each paint'
+$appearance = Block-Source $design 'void EnsureReferenceAppearance\(\)\s*\{' 'EnsureReferenceAppearance'
+Check ($appearance -match 'readPref<bool>\("lunagram/liquid_appearance_v2", false\)' -and $appearance -match 'writePref<bool>\("lunagram/liquid_appearance_v2", true\)' -and $appearance -notmatch 'liquid_appearance_v1') 'Reference appearance migration is versioned and recorded only after applying the theme'
+Check ($appearance.IndexOf('Window::Theme::Apply(') -lt $appearance.IndexOf('writePref<bool>(') -and $appearance -match 'Window::Theme::KeepApplied\(\)') 'Appearance migration retains native apply/keep ordering'
+$backdrop = Block-Source $design 'void PaintReferenceBackdrop\([\s\S]*?\)\s*\{' 'PaintReferenceBackdrop'
+Check ($backdrop -match '!ReferenceDesignEnabled\(\)' -and $backdrop -match 'theme\.get\(\) != controller->defaultChatTheme\(\)\.get\(\)' -and $backdrop -match 'theme->background\(\)\.giftId') 'Shared wallpaper is gated to reference mode and the exact non-gift default theme'
+Check ($backdrop -match 'content->size\(\)\.isEmpty\(\)' -and $backdrop -match 'widget\.get\(\) != content\.get\(\)' -and $backdrop -match '!content->isAncestorOf\(widget\.get\(\)\)') 'Shared wallpaper checks viewport size and widget ancestry before mapping'
+$legacyBackdrop = $backdrop.IndexOf('Window::SectionWidget::PaintBackground(controller, theme, widget, clip);')
+$mappedBackdrop = $backdrop.IndexOf('widget->mapTo(content, QPoint())')
+Check ($legacyBackdrop -ge 0 -and $mappedBackdrop -gt $legacyBackdrop) 'Unsupported wallpaper contexts return through the original controller-aware painter'
+Check ($backdrop -match 'clip\.translate\(origin\)' -and $backdrop -match 'p\.translate\(-origin\)' -and $backdrop -match 'p\.setClipRect\(clip, Qt::IntersectClip\)') 'Shared wallpaper moves its painter and partial clip into the same content coordinates'
+Check ($backdrop -match 'PaintBackground\(\s*p,\s*theme,\s*content->size\(\),\s*clip,\s*controller->isGifPausedAtLeastFor\(Window::GifPauseReason::Any\)\)' -and $backdrop -notmatch 'backgroundFromY|widget->width\(\)|QImage|QPixmap|\bgrab\(|\brender\(') 'Shared wallpaper uses the native cached painter with one full viewport and the existing pause state'
+$mainWidget = Read-Source 'Telegram/SourceFiles/mainwidget.cpp'
+$mainPaint = Block-Source $mainWidget 'void MainWidget::paintEvent\([^)]*\)\s*\{' 'MainWidget::paintEvent'
+Check ($mainPaint -match 'ReferenceDesignEnabled\(\) && !_showAnimation' -and $mainPaint -match 'Lunagram::PaintReferenceBackdrop\(') 'Main viewport paints the common reference wallpaper outside its slide animation'
+Check ($mainWidget -match 'defaultChatTheme\(\)->repaintBackgroundRequests\(\s*\) \| rpl::on_next\([\s\S]*?ReferenceDesignEnabled\(\)[\s\S]*?update\(\);[\s\S]*?lifetime\(\)\)') 'Native theme cache changes repaint the common viewport with a widget-bound lifetime'
+$mainGeometry = Block-Source $mainWidget 'void MainWidget::updateControlsGeometry\(\)\s*\{' 'MainWidget::updateControlsGeometry'
+Check ($mainGeometry -match 'floatPlayerUpdatePositions\(\);\s*if \(Lunagram::ReferenceDesignEnabled\(\)\) \{\s*update\(\);') 'Reference viewport repaint is deferred until the geometry update is complete'
+foreach ($icon in @('reference_profile', 'reference_chats', 'reference_compose')) {
+    $svg = [xml](Read-Source "Telegram/Resources/icons/lunagram/$icon.svg")
+    Check ([string]$svg.svg.width -eq '24' -and [string]$svg.svg.height -eq '24' -and [string]$svg.svg.viewBox -eq '0 0 24 24') "Reference vector icon has native 24px dimensions: $icon"
+    Check (@($svg.svg.path).Count -gt 0) "Reference vector icon contains its mask: $icon"
+    Check (($allStyles -match ('"lunagram/' + [regex]::Escape($icon) + '"'))) "Reference vector icon reaches native style generation: $icon"
+}
 $topBar = Read-Source 'Telegram/SourceFiles/history/view/history_view_top_bar_widget.cpp'
 $topBarPaint = Block-Source $topBar 'void TopBarWidget::paintEvent\([^)]*\)\s*\{' 'TopBarWidget::paintEvent'
+Check ($topBarPaint -match 'Lunagram::PaintReferenceBackdrop\(') 'Floating header uses the common reference wallpaper painter'
 Check ($topBarPaint -match 'style::RightToLeft\(\)' -and $topBarPaint -match 'myrtlrect\(left, inset,' -and $topBarPaint -notmatch '_back->geometry\(\)\.right\(\)') 'Title capsule converts physical back-button geometry to mirrored logical placement'
 Check ($topBarPaint -match 'QSize\(diameter, diameter\)' -and $topBarPaint -match 'QPoint\(button->width\(\) / 2, button->height\(\) / 2\)') 'Floating header controls have square, icon-centered circular surfaces'
 $infoStyle = Read-Source 'Telegram/SourceFiles/info/info.style'
@@ -194,6 +218,13 @@ $edge = Pixel-Value $helpersStyle 'historySendRight'
 $bubbleRadius = Pixel-Value $chatStyle 'lunagramReferenceBubbleRadius'
 $panelRadius = Pixel-Value $designStyle 'lunagramReferencePanelRadius'
 $navigationHeight = Pixel-Value $designStyle 'lunagramNavigationHeight'
+$captionHeight = Pixel-Value $designStyle 'lunagramReferenceCaptionHeight'
+$lightRadius = Pixel-Value $designStyle 'lunagramTrafficLightRadius'
+$lightHitSize = Pixel-Value $designStyle 'lunagramTrafficLightHitSize'
+$lightSpacing = Pixel-Value $designStyle 'lunagramTrafficLightSpacing'
+$lightLeft = Pixel-Value $designStyle 'lunagramTrafficLightLeft'
+$lightTop = Pixel-Value $designStyle 'lunagramTrafficLightTop'
+$captionSide = Pixel-Value $dialogStyle 'dialogsReferenceCaptionTitleSide'
 $replyHeight = Pixel-Value $helpersStyle 'historyReplyHeight'
 $attach = Style-Block $helpersStyle 'historyAttach'
 $attachWidth = Pixel-Value $attach 'width'
@@ -212,8 +243,36 @@ $dialogPhoto = Pixel-Value $dialogRow 'photoSize'
 $dialogNameTop = Pixel-Value $dialogRow 'nameTop'
 $dialogTextTop = Pixel-Value $dialogRow 'textTop'
 Check ($dialogHeight -gt $dialogPhoto -and $dialogTextTop -gt $dialogNameTop -and $dialogTextTop -lt $dialogHeight) 'Reference dialog row leaves space for its avatar and separate text baselines'
+$dialogsWidget = Read-Source 'Telegram/SourceFiles/dialogs/dialogs_widget.cpp'
+$dialogsHeader = Read-Source 'Telegram/SourceFiles/dialogs/dialogs_widget.h'
+$dialogsDestructor = Block-Source $dialogsWidget 'Widget::~Widget\(\)\s*\{' 'Dialogs Widget destructor'
+Check ($dialogsHeader.IndexOf('std::unique_ptr<style::InputField> _searchStyle;') -ge 0 -and $dialogsHeader.IndexOf('object_ptr<Ui::InputField> _search;') -gt $dialogsHeader.IndexOf('std::unique_ptr<style::InputField> _searchStyle;')) 'Mutable search style is initialized before its field'
+Check ($dialogsDestructor -match 'lifetime\(\)\.destroy\(\);[\s\S]*?_referenceSearchHint\.reset\(\);[\s\S]*?_search->lifetime\(\)\.destroy\(\);[\s\S]*?_search\.destroy\(\);') 'Search field and its subscriptions are torn down while its style is still alive'
+$referenceTextStyle = Style-Block $dialogStyle 'dialogsReferenceTextStyle'
+$previewPitch = Pixel-Value $referenceTextStyle 'lineHeight'
+$dialogsLayout = Read-Source 'Telegram/SourceFiles/dialogs/ui/dialogs_layout.cpp'
+$dialogsPreview = Read-Source 'Telegram/SourceFiles/dialogs/ui/dialogs_message_view.cpp'
+Check ($dialogsLayout -match 'st\.nameTop \+ st::semiboldFont->height' -and $dialogsLayout -match 'lineHeight \+ pitch \*') 'Reference preview respects actual title and glyph height rather than fixed line count division'
+Check ($dialogsPreview -match 'st::dialogsReferenceTextStyle' -and $dialogsPreview -match '\.elisionLines = reference' -and $dialogsPreview -match 'p\.setClipRect\(') 'Reference text uses native line spacing, bounded elision and vertical clipping'
+foreach ($previewScale in @(100, 125, 150, 175, 200)) {
+    foreach ($fontHeightBase in 15..19) {
+        foreach ($titleExtra in @(0, 1)) {
+            $fontHeight = Scale-Pixels $fontHeightBase $previewScale
+            $titleHeight = $fontHeight + $titleExtra
+            $top = (Scale-Pixels $dialogNameTop $previewScale) + $titleHeight
+            $pitch = Scale-Pixels $previewPitch $previewScale
+            $budget = $fontHeight + $pitch
+            Check ($top + $budget -le (Scale-Pixels $dialogHeight $previewScale)) "Two-line native glyph/pitch budget fits normal row: $previewScale%/$fontHeightBase/title+$titleExtra"
+        }
+    }
+}
 
 $history = Read-Source 'Telegram/SourceFiles/history/history_widget.cpp'
+$historyPaint = Block-Source $history 'void HistoryWidget::paintEvent\([^)]*\)\s*\{' 'HistoryWidget::paintEvent'
+Check ($historyPaint -match 'Lunagram::PaintReferenceBackdrop\(' -and $historyPaint -match 'controller\(\)->currentChatTheme\(\)') 'History passes its real current theme through the common painter and fallback guard'
+$dialogs = Read-Source 'Telegram/SourceFiles/dialogs/dialogs_widget.cpp'
+$dialogsPaint = Block-Source $dialogs 'void Widget::paintEvent\([^)]*\)\s*\{' 'Dialogs::Widget::paintEvent'
+Check ($dialogsPaint -match 'Lunagram::PaintReferenceBackdrop\(' -and $dialogsPaint -match 'referencePanel && !_showAnimation') 'Reference dialogs share the viewport wallpaper outside their slide animation'
 $fieldPaint = Block-Source $history 'void HistoryWidget::drawField\([^)]*\)\s*\{' 'HistoryWidget::drawField'
 Check ($fieldPaint -match '!Lunagram::ReferenceDesignEnabled\(\)') 'Reference composer keeps its native wallpaper under the glass panel'
 $message = Read-Source 'Telegram/SourceFiles/history/view/history_view_message.cpp'
@@ -275,6 +334,15 @@ if ($themeFiles.Count -eq 1) {
 
 $modelCases = 0
 foreach ($scale in @(100, 125, 150, 175, 200)) {
+    $scaledCaption = Scale-Pixels $captionHeight $scale
+    $scaledHit = Scale-Pixels $lightHitSize $scale
+    $scaledRadius = Scale-Pixels $lightRadius $scale
+    $scaledSpacing = Scale-Pixels $lightSpacing $scale
+    $scaledLightLeft = Scale-Pixels $lightLeft $scale
+    $scaledLightTop = Scale-Pixels $lightTop $scale
+    Check ($scaledHit -ge 2 * $scaledRadius -and $scaledSpacing -ge $scaledHit) "Traffic lights have separate scaled hit targets: $scale%"
+    Check ($scaledLightTop - $scaledHit / 2.0 -ge 0 -and $scaledLightTop + $scaledHit / 2.0 -le $scaledCaption) "Traffic lights fit the draggable caption: $scale%"
+    Check ($scaledLightLeft - $scaledHit / 2.0 -ge 0 -and $scaledLightLeft + 2 * $scaledSpacing + $scaledHit / 2.0 -lt (Scale-Pixels $captionSide $scale)) "Caption title avoids all three traffic-light targets: $scale%"
     $minimumField = Scale-Pixels $fieldMin $scale
     $pad = Scale-Pixels $padding $scale
     $buttonHeight = Scale-Pixels $actionHeight $scale
@@ -340,7 +408,42 @@ foreach ($scale in @(100, 125, 150, 175, 200)) {
     }
 }
 
-Write-Output "Coverage: $modelCases scaled input/reply/keyboard/RTL model cases, source/style/resource contracts, localization and theme RGBA consistency."
+$backdropCases = 0
+foreach ($scale in @(100, 125, 150, 175, 200)) {
+    foreach ($widthBase in @(320, 960, 1440)) {
+        foreach ($heightBase in @(640, 900)) {
+            $viewportWidth = Scale-Pixels $widthBase $scale
+            $viewportHeight = Scale-Pixels $heightBase $scale
+            $panelWidth = [int][Math]::Floor($viewportWidth / 3.0)
+            foreach ($rtl in @($false, $true)) {
+                $left = $(if ($rtl) { $viewportWidth - $panelWidth } else { 0 })
+                foreach ($topBase in @(0, 42, 86)) {
+                    $top = Scale-Pixels $topBase $scale
+                    $partial = [pscustomobject]@{ X = 7; Y = 11; W = 23; H = 17 }
+                    $mappedClip = [pscustomobject]@{ X = $left + $partial.X; Y = $top + $partial.Y; W = $partial.W; H = $partial.H }
+                    Check ($mappedClip.X - $left -eq $partial.X -and $mappedClip.Y - $top -eq $partial.Y -and $mappedClip.W -eq $partial.W -and $mappedClip.H -eq $partial.H) "Wallpaper partial clip translation is reversible: $scale%/$widthBase/$heightBase/RTL=$rtl/$topBase"
+                    foreach ($dpr in @(1.0, 1.25, 1.5, 2.0)) {
+                        foreach ($probe in @(
+                            [pscustomobject]@{ X = 0; Y = 0 },
+                            [pscustomobject]@{ X = 7; Y = 11 },
+                            [pscustomobject]@{ X = $panelWidth - 1; Y = $viewportHeight - $top - 1 }
+                        )) {
+                            $globalX = $left + $probe.X
+                            $globalY = $top + $probe.Y
+                            Check ($globalX -ge 0 -and $globalX -lt $viewportWidth -and $globalY -ge 0 -and $globalY -lt $viewportHeight) "Wallpaper mapped point remains in the shared viewport: $scale%/$widthBase/$heightBase/RTL=$rtl/$topBase/$dpr"
+                            $parentPixel = [pscustomobject]@{ X = [Math]::Floor($globalX * $dpr); Y = [Math]::Floor($globalY * $dpr) }
+                            $childPixel = [pscustomobject]@{ X = [Math]::Floor(($probe.X + $left) * $dpr); Y = [Math]::Floor(($probe.Y + $top) * $dpr) }
+                            Check ($parentPixel.X -eq $childPixel.X -and $parentPixel.Y -eq $childPixel.Y) "Parent and translated panel sample identical wallpaper coordinates: $scale%/$widthBase/$heightBase/RTL=$rtl/$topBase/$dpr"
+                            $backdropCases += 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+Write-Output "Coverage: $modelCases scaled input/reply/keyboard/RTL model cases, $backdropCases viewport/partial-clip/DPR wallpaper coordinate cases, source/style/resource contracts, localization and theme RGBA consistency."
 if ($script:Failures.Count) {
     foreach ($failure in $script:Failures) { Write-Output "FAIL: $failure" }
     throw "$($script:Failures.Count) of $($script:Checks) source/model checks failed. No compile or Qt runtime validation was performed."

@@ -85,6 +85,9 @@ dialogsRipple: RippleAnimation(defaultRippleAnimation) {
 
 dialogsTextFont: normalFont;
 dialogsTextStyle: defaultTextStyle;
+dialogsReferenceTextStyle: TextStyle(dialogsTextStyle) {
+	lineHeight: 16px;
+}
 dialogsDateFont: font(13px);
 dialogsDateSkip: 5px;
 
@@ -105,20 +108,33 @@ dialogsReferenceRowHeight: 64px;
 referenceDialogRow: DialogRow(defaultDialogRow) {
 	height: dialogsReferenceRowHeight;
 	photoSize: 48px;
-	nameTop: 8px;
-	textTop: 30px;
+	nameTop: 9px;
+	textTop: 28px;
 }
+dialogsReferencePreviewLines: 2;
+dialogsReferencePreviewBottom: 0px;
 dialogsReferenceRowInset: 4px;
 dialogsReferenceRowRadius: 12px;
 dialogsReferenceSeparatorOpacity: 0.06;
 dialogsReferenceNavigationMinimumWidth: 160px;
-dialogsReferenceCaptionTitleSide: 68px;
+dialogsReferenceCaptionTitleSide: 76px;
+dialogsReferenceCaptionTitleTop: 7px;
 dialogsReferenceSearchSide: 8px;
+dialogsReferenceSearchControlsHeight: 50px;
+dialogsReferenceSearchIconSize: 14px;
+dialogsReferenceSearchIconSkip: 5px;
+dialogsReferenceSearchIcon: icon {{ "menu/search", placeholderFg }};
+dialogsReferenceArchiveHeight: 30px;
+dialogsReferenceArchiveInset: 8px;
+dialogsReferenceArchiveRadius: 8px;
+dialogsReferenceArchiveIconSize: 14px;
+dialogsReferenceArchiveIconSkip: 5px;
+dialogsReferenceArchiveIcon: icon {{ "menu/archive", dialogsArchiveFg }};
 lunagramReferenceNewChat: IconButton {
 	width: 30px;
 	height: 30px;
-	icon: icon {{ "menu/edit", activeButtonBg }};
-	iconOver: icon {{ "menu/edit", activeButtonBgOver }};
+	icon: icon {{ "lunagram/reference_compose", activeButtonBg }};
+	iconOver: icon {{ "lunagram/reference_compose", activeButtonBgOver }};
 	iconPosition: point(3px, 3px);
 	rippleAreaPosition: point(0px, 0px);
 	rippleAreaSize: 30px;
@@ -374,7 +390,8 @@ dialogsFilter: InputField(defaultInputField) {
 }
 dialogsReferenceFilter: InputField(dialogsFilter) {
 	borderRadius: 12px;
-	heightMin: 36px;
+	textMargins: margins(12px, 5px, 30px, 4px);
+	heightMin: 28px;
 }
 dialogsCancelSearchInPeer: IconButton(dialogsMenuToggle) {
 	icon: icon {{ "dialogs/dialogs_cancel_search", dialogsMenuIconFg }};

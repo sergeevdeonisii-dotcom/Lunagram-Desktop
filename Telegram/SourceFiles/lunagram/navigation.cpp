@@ -4,14 +4,11 @@
 #include "data/data_user.h"
 #include "lang/lang_keys.h"
 #include "lunagram/chat_vault.h"
-#include "lunagram/design.h"
 #include "main/main_session.h"
 #include "ui/widgets/buttons.h"
-#include "ui/painter.h"
 #include "window/window_session_controller.h"
 
 #include "styles/style_lunagram_design.h"
-#include "styles/style_widgets.h"
 
 namespace Lunagram {
 
@@ -43,11 +40,6 @@ NavigationBar::NavigationBar(
 	for (const auto button : _buttons) {
 		button->show();
 	}
-}
-
-void NavigationBar::paintEvent(QPaintEvent *e) {
-	auto p = QPainter(this);
-	PaintGlassPanel(p, rect(), st::windowBg->c);
 }
 
 void NavigationBar::resizeEvent(QResizeEvent *e) {

@@ -134,12 +134,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
 #include "mainwindow.h"
+
+#include <array>
+
 #include "styles/style_calls.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_credits.h"
 #include "styles/style_iv.h"
 #include "styles/style_layers.h"
+#include "styles/style_lunagram_design.h"
 #include "styles/style_menu_icons.h"
 
 namespace HistoryView {
@@ -2775,7 +2779,7 @@ void ComposeControls::init() {
 	_wrap->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
 		auto p = QPainter(_wrap.get());
-		paintBackground(p, _wrap->rect(), clip);
+		paintBackground(_wrap.get(), p, _wrap->rect(), clip);
 	}, _wrap->lifetime());
 
 
@@ -4298,7 +4302,11 @@ void ComposeControls::initWriteRestriction() {
 		_writeRestricted->width(),
 		_st.send.inner.height);
 	const auto background = [=](QPainter &p, QRect clip) {
-		paintBackground(p, _writeRestricted->rect(), clip);
+		paintBackground(
+			_writeRestricted.get(),
+			p,
+			_writeRestricted->rect(),
+			clip);
 	};
 	SetupRestrictionView(
 		_writeRestricted.get(),
@@ -4956,31 +4964,41 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		}
 	}
 
-	const auto buttonsTop = (&_st == &st::lunagramReferenceComposeControls)
+	const auto reference = (&_st == &st::lunagramReferenceComposeControls);
+	const auto buttonsCenterTwice = 2 * (size.height() - _st.padding.bottom())
+		- _st.field.heightMin;
+	const auto buttonsTop = reference
 		? (size.height() - _st.padding.bottom()
 			- (_st.field.heightMin + _st.attach.height) / 2)
 		: (size.height() - _st.attach.height);
+	const auto buttonTop = [&](QWidget *button) {
+		return reference
+			? ((buttonsCenterTwice - button->height()) / 2)
+			: buttonsTop;
+	};
 
 	auto left = 0;
 	if (commentsShown) {
-		_commentsShown->moveToLeft(left, buttonsTop);
+		_commentsShown->moveToLeft(left, buttonTop(_commentsShown));
 		left += _commentsShown->width() + _st.commentsSkip;
 	}
 	left += (_attachToggle || _sendAs) ? _st.padding.left() : _st.fieldLeft;
 	if (_botMenu.button) {
 		const auto skip = st::historyBotMenuSkip;
-		_botMenu.button->moveToLeft(left + skip, buttonsTop + skip);
+		_botMenu.button->moveToLeft(
+			left + skip,
+			reference ? buttonTop(_botMenu.button) : (buttonsTop + skip));
 		left += skip + _botMenu.button->width();
 	}
 	if (_replaceMedia) {
-		_replaceMedia->moveToLeft(left, buttonsTop);
+		_replaceMedia->moveToLeft(left, buttonTop(_replaceMedia.get()));
 	}
 	if (_attachToggle) {
-		_attachToggle->moveToLeft(left, buttonsTop);
+		_attachToggle->moveToLeft(left, buttonTop(_attachToggle));
 		left += _attachToggle->width();
 	}
 	if (_sendAs) {
-		_sendAs->moveToLeft(left, buttonsTop);
+		_sendAs->moveToLeft(left, buttonTop(_sendAs.get()));
 		left += _sendAs->width();
 	}
 	const auto fieldHeight = composeFieldHeight();
@@ -4990,8 +5008,18 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		_richDraftPreview->moveToLeft(left, fieldTop);
 	}
 	if (_fieldDisabled) {
-		_fieldDisabled->resize(size.width(), st::historySendSize.height());
-		_fieldDisabled->moveToLeft(left, fieldTop);
+		_fieldDisabled->resize(
+			reference ? fieldWidth : size.width(),
+			reference
+				? (st::historySendSize.height() - 2 * st::historySendPadding)
+				: st::historySendSize.height());
+		_fieldDisabled->moveToLeft(
+			left,
+			fieldTop + (reference
+				? ((_st.field.heightMin
+					- st::historySendSize.height()
+					+ 2 * st::historySendPadding) / 2)
+				: 0));
 	}
 
 	_header->resizeToWidth(size.width());
@@ -5001,17 +5029,17 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 
 	auto right = 0;
 	if (_starsReaction) {
-		_starsReaction->moveToRight(right, buttonsTop);
+		_starsReaction->moveToRight(right, buttonTop(_starsReaction));
 		right += _starsReaction->width() + _st.starsSkip;
 	}
 	right += _st.padding.right();
-	_send->moveToRight(right, buttonsTop);
+	_send->moveToRight(right, buttonTop(_send.get()));
 	right += _send->width();
 	if (_editStars) {
-		_editStars->moveToRight(right, buttonsTop);
+		_editStars->moveToRight(right, buttonTop(_editStars));
 		right += _editStars->width();
 	}
-	_tabbedSelectorToggle->moveToRight(right, buttonsTop);
+	_tabbedSelectorToggle->moveToRight(right, buttonTop(_tabbedSelectorToggle));
 	if (!_tabbedSelectorToggle->isHidden()) {
 		right += _tabbedSelectorToggle->width();
 	}
@@ -5020,50 +5048,54 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		if (_writeRestriction.current().type == Type::PremiumRequired) {
 			_like->moveToRight(st::historySendRight, 0);
 		} else {
-			_like->moveToRight(right, buttonsTop);
+			_like->moveToRight(right, buttonTop(_like));
 			if (_likeShown) {
 				right += _like->width();
 			}
 		}
 	}
 	if (_botCommandStart) {
-		_botCommandStart->moveToRight(right, buttonsTop);
+		_botCommandStart->moveToRight(right, buttonTop(_botCommandStart));
 		if (_botCommandShown) {
 			right += _botCommandStart->width();
 		}
 	}
 	if (_silent) {
-		_silent->moveToRight(right, buttonsTop);
+		_silent->moveToRight(right, buttonTop(_silent.get()));
 		if (!_silent->isHidden()) {
 			right += _silent->width();
 		}
 	}
 	if (_botKeyboardShow) {
-		_botKeyboardShow->moveToRight(right, buttonsTop);
+		_botKeyboardShow->moveToRight(right, buttonTop(_botKeyboardShow.get()));
 		right += _botKeyboardShow->width();
 	}
 	if (_botKeyboardHide) {
-		_botKeyboardHide->moveToRight(right, buttonsTop);
+		_botKeyboardHide->moveToRight(right, buttonTop(_botKeyboardHide.get()));
 		right += _botKeyboardHide->width();
 	}
 	if (_toggleSuggestPost) {
-		_toggleSuggestPost->moveToRight(right, buttonsTop);
+		_toggleSuggestPost->moveToRight(right, buttonTop(_toggleSuggestPost.get()));
 		if (!_toggleSuggestPost->isHidden()) {
 			right += _toggleSuggestPost->width();
 		}
 	}
 	if (giftToUser) {
-		_giftToUser->moveToRight(right, buttonsTop);
+		_giftToUser->moveToRight(right, buttonTop(_giftToUser.get()));
 		right += _giftToUser->width();
 	}
 	if (_scheduled) {
-		_scheduled->moveToRight(right, buttonsTop);
+		_scheduled->moveToRight(right, buttonTop(_scheduled.get()));
 		if (!_scheduled->isHidden()) {
 			right += _scheduled->width();
 		}
 	}
 	if (_ttlInfo) {
-		_ttlInfo->move(size.width() - right - _ttlInfo->width(), buttonsTop);
+		_ttlInfo->move(
+			size.width() - right - _ttlInfo->width(),
+			reference
+				? ((buttonsCenterTwice - st::historyMessagesTTL.iconButton.height) / 2)
+				: buttonsTop);
 	}
 	updateAiButtonGeometry();
 	updateSendAsFileGeometry();
@@ -5428,7 +5460,9 @@ bool ComposeControls::refreshBotMenuButton() {
 			(_botMenu.text.isEmpty()
 				? tr::lng_bot_menu_button()
 				: rpl::single(_botMenu.text)),
-			st::historyBotMenuButton);
+			(_regularWindow && &_st == &st::lunagramReferenceComposeControls)
+				? st::lunagramReferenceBotMenuButton
+				: st::historyBotMenuButton);
 		orderControls();
 
 		_botMenu.button->setFullRadius(true);
@@ -5616,7 +5650,51 @@ void ComposeControls::updateAttachBotsMenu() {
 	}, _attachBotsMenu->lifetime());
 }
 
-void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
+void ComposeControls::paintBackground(
+		not_null<QWidget*> widget,
+		QPainter &p,
+		QRect full,
+		QRect clip) {
+	if (_regularWindow
+		&& &_st == &st::lunagramReferenceComposeControls
+		&& widget == _wrap.get()) {
+		auto field = _field->geometry();
+		field.setHeight(composeFieldHeight());
+		Lunagram::PaintComposerPanel(
+			p,
+			Lunagram::ComposerFieldPanel(field, _send->geometry()),
+			&session(),
+			_regularWindow,
+			widget);
+		for (const auto button : std::array<QWidget*, 7>{
+			_botMenu.button.get(),
+			_attachToggle,
+			_replaceMedia.get(),
+			_sendAs.get(),
+			_send.get(),
+			_commentsShown,
+			_starsReaction,
+		}) {
+			if (button && !button->isHidden()) {
+				Lunagram::PaintComposerPanel(
+					p,
+					Lunagram::ComposerButtonPanel(button->geometry()),
+					&session(),
+					_regularWindow,
+					widget);
+			}
+		}
+		if (_header->isDisplayed()) {
+			const auto inset = st::lunagramReferencePanelInset;
+			Lunagram::PaintComposerPanel(
+				p,
+				_header->geometry().adjusted(inset, inset, -inset, -inset),
+				&session(),
+				_regularWindow,
+				widget);
+		}
+		return;
+	}
 	if (_backgroundRect) {
 		auto hq = PainterHighQualityEnabler(p);
 		p.setBrush(_st.bg);
@@ -5639,7 +5717,13 @@ void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
 	}
 	if (&_st == &st::lunagramReferenceComposeControls
 		|| !Lunagram::ReferenceDesignEnabled()) {
-		Lunagram::PaintComposerBackground(p, full, &session(), false);
+		Lunagram::PaintComposerBackground(
+			p,
+			full,
+			&session(),
+			false,
+			_regularWindow,
+			widget);
 	}
 }
 
@@ -5738,7 +5822,9 @@ void ComposeControls::toggleTabbedSelectorMode() {
 
 int ComposeControls::composeFieldHeight() const {
 	return fieldDisabledShown()
-		? (st::historySendSize.height() - 2 * st::historySendPadding)
+		? ((&_st == &st::lunagramReferenceComposeControls)
+			? _st.field.heightMin
+			: (st::historySendSize.height() - 2 * st::historySendPadding))
 		: shouldShowRichDraftPreview()
 		? _richDraftPreview->height()
 		: _field->height();

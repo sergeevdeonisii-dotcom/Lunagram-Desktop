@@ -472,6 +472,11 @@ MainWidget::MainWidget(
 			update();
 		}
 	}, lifetime());
+	_controller->activeChatChanges() | rpl::on_next([=] {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			update();
+		}
+	}, lifetime());
 	crl::on_main(this, [] { Lunagram::EnsureReferenceAppearance(); });
 }
 
@@ -2582,7 +2587,7 @@ void MainWidget::paintEvent(QPaintEvent *e) {
 	if (Lunagram::ReferenceDesignEnabled() && !_showAnimation) {
 		Lunagram::PaintReferenceBackdrop(
 			_controller,
-			_controller->defaultChatTheme().get(),
+			_controller->currentChatTheme(),
 			this,
 			e->rect());
 	}

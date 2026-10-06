@@ -213,6 +213,8 @@ private:
 	void paintReferenceSearchHint();
 	void updateReferenceSearchHint();
 	[[nodiscard]] bool referenceHeaderShown() const;
+	[[nodiscard]] QRect referenceTitleRect() const;
+	[[nodiscard]] bool referenceStoriesButtonShown() const;
 	[[nodiscard]] PeerData *searchInPeer() const;
 	[[nodiscard]] Data::ForumTopic *searchInTopic() const;
 	[[nodiscard]] PeerData *searchFromPeer() const;
@@ -351,6 +353,7 @@ private:
 		object_ptr<Ui::AbstractButton> under;
 	} _mainMenu;
 	object_ptr<Ui::IconButton> _referenceCompose = { nullptr };
+	object_ptr<Ui::IconButton> _referenceStories = { nullptr };
 	object_ptr<Ui::IconButton> _searchForNarrowLayout;
 	std::unique_ptr<style::InputField> _searchStyle;
 	object_ptr<Ui::InputField> _search;

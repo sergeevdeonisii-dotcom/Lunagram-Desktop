@@ -215,17 +215,68 @@ void InitComposerEffects(
 	}, field->lifetime());
 }
 
+QRect ComposerButtonPanel(QRect geometry) {
+	const auto diameter = std::min(
+		st::lunagramReferenceHeaderButtonDiameter,
+		geometry.height());
+	const auto width = std::max(
+		diameter,
+		geometry.width() - geometry.height() + diameter);
+	return QRect(
+		geometry.x() + (geometry.width() - width) / 2,
+		geometry.y() + (geometry.height() - diameter) / 2,
+		width,
+		diameter);
+}
+
+QRect ComposerFieldPanel(QRect field, QRect send) {
+	if (!send.isEmpty()) {
+		if (send.center().x() > field.center().x()) {
+			field.setRight(send.left() - st::lunagramReferencePanelInset);
+		} else {
+			field.setLeft(send.right() + st::lunagramReferencePanelInset);
+		}
+	}
+	return field;
+}
+
+void PaintComposerPanel(
+		QPainter &p,
+		QRect bounds,
+		not_null<Main::Session*> session,
+		Window::SessionController *controller,
+		QWidget *widget) {
+	if (bounds.isEmpty()) {
+		return;
+	}
+	const auto radius = std::min(
+		st::lunagramReferencePanelRadius,
+		bounds.height() / 2);
+	if (controller && widget && &controller->session() == session.get()) {
+		PaintGlassPanel(
+			controller,
+			controller->currentChatTheme(),
+			widget,
+			p,
+			bounds,
+			st::historyComposeAreaBg->c,
+			radius);
+	} else {
+		PaintGlassPanel(p, bounds, st::boxBg->c, radius);
+	}
+}
+
 void PaintComposerBackground(
 		QPainter &p,
 		const QRect &bounds,
 		not_null<Main::Session*> session,
-		bool fillBackground) {
+		bool fillBackground,
+		Window::SessionController *controller,
+		QWidget *widget) {
 	if (ReferenceDesignEnabled()) {
 		const auto padding = st::historySendPadding;
-		PaintGlassPanel(
-			p,
-			bounds.adjusted(padding, padding, -padding, -padding),
-			st::boxBg->c);
+		const auto panel = bounds.adjusted(padding, padding, -padding, -padding);
+		PaintComposerPanel(p, panel, session, controller, widget);
 		return;
 	}
 	if (fillBackground) {

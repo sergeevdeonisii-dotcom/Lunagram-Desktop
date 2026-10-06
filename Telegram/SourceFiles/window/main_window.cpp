@@ -722,7 +722,9 @@ void MainWindow::refreshTitleWidget() {
 void MainWindow::setReferenceCaptionArea(
 		not_null<SessionController*> controller,
 		not_null<QWidget*> source,
-		QRect area) {
+		QRect area,
+		QRect menuArea,
+		Fn<void()> menuClicked) {
 	if (sessionController() != controller.get()
 		|| !Lunagram::ReferenceDesignEnabled()
 		|| !Platform::IsWindows()) {
@@ -731,9 +733,12 @@ void MainWindow::setReferenceCaptionArea(
 	if (!_windowChrome) {
 		_windowChrome.create(this, [=] { queueReferenceChromeUpdate(); });
 	}
-	_windowChrome->setCaptionArea(source, area, [=] {
-		return sessionController() == controller.get();
-	});
+	_windowChrome->setCaptionArea(
+		source,
+		area,
+		[=] { return sessionController() == controller.get(); },
+		menuArea,
+		std::move(menuClicked));
 }
 
 void MainWindow::queueReferenceChromeUpdate() {

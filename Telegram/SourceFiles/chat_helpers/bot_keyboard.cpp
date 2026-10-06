@@ -13,13 +13,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "history/history.h"
 #include "history/history_item_components.h"
+#include "lunagram/design.h"
+#include "lunagram/lunagram_settings.h"
 #include "main/main_session.h"
-#include "ui/cached_round_corners.h"
 #include "ui/chat/chat_style_radius.h"
+#include "ui/cached_round_corners.h"
 #include "ui/painter.h"
 #include "ui/round_rect.h"
 #include "ui/ui_utility.h"
 #include "window/window_session_controller.h"
+
 #include "styles/style_chat.h"
 #include "styles/style_widgets.h"
 
@@ -36,6 +39,7 @@ class Style : public ReplyKeyboard::Style {
 public:
 	Style(
 		not_null<BotKeyboard*> parent,
+		not_null<Window::SessionController*> controller,
 		const style::BotKeyboardButton &st);
 
 	Images::CornersMaskRef buttonRounding(
@@ -73,14 +77,20 @@ protected:
 	int minButtonWidth(HistoryMessageMarkupButton::Type type) const override;
 
 private:
-	not_null<BotKeyboard*> _parent;
+	[[nodiscard]] Ui::CachedCornerRadius referenceRounding() const;
+
+	const not_null<BotKeyboard*> _parent;
+	const not_null<Window::SessionController*> _controller;
 
 };
 
 Style::Style(
-	not_null<BotKeyboard*> parent,
-	const style::BotKeyboardButton &st)
-: ReplyKeyboard::Style(st), _parent(parent) {
+		not_null<BotKeyboard*> parent,
+		not_null<Window::SessionController*> controller,
+		const style::BotKeyboardButton &st)
+: ReplyKeyboard::Style(st)
+, _parent(parent)
+, _controller(controller) {
 }
 
 void Style::paintButtonStart(
@@ -103,6 +113,10 @@ void Style::repaint(not_null<const HistoryItem*> item) const {
 Images::CornersMaskRef Style::buttonRounding(
 		Ui::BubbleRounding outer,
 		RectParts sides) const {
+	if (Lunagram::ReferenceDesignEnabled()) {
+		return Images::CornersMaskRef(Ui::CachedCornersMasks(
+			referenceRounding()));
+	}
 	using namespace Images;
 	using namespace Ui;
 	using Radius = CachedCornerRadius;
@@ -126,6 +140,12 @@ Images::CornersMaskRef Style::buttonRounding(
 	return result;
 }
 
+Ui::CachedCornerRadius Style::referenceRounding() const {
+	return (buttonHeight() >= 2 * Ui::BubbleRadiusLarge())
+		? Ui::CachedCornerRadius::BubbleLarge
+		: Ui::CachedCornerRadius::Small;
+}
+
 void Style::paintButtonBg(
 		QPainter &p,
 		const Ui::ChatStyle *st,
@@ -142,6 +162,29 @@ void Style::paintButtonBg(
 		: (color == Color::Danger)
 		? st::botKbDangerBg->c
 		: st::botKbSuccessBg->c;
+	if (Lunagram::ReferenceDesignEnabled()) {
+		const auto radius = Ui::CachedCornerRadiusValue(referenceRounding());
+		if (color == Color::Normal) {
+			const auto bounds = p.worldTransform().mapRect(rect);
+			p.save();
+			p.resetTransform();
+			Lunagram::PaintGlassPanel(
+				_controller,
+				_controller->currentChatTheme(),
+				_parent,
+				p,
+				bounds,
+				bg,
+				radius);
+			p.restore();
+		} else {
+			auto hq = PainterHighQualityEnabler(p);
+			p.setPen(Qt::NoPen);
+			p.setBrush(bg);
+			p.drawRoundedRect(rect, radius, radius);
+		}
+		return;
+	}
 	auto hq = PainterHighQualityEnabler(p);
 	p.setPen(Qt::NoPen);
 	p.setBrush(bg);
@@ -199,10 +242,20 @@ BotKeyboard::BotKeyboard(
 }
 
 void BotKeyboard::paintEvent(QPaintEvent *e) {
+	const auto reference = Lunagram::ReferenceDesignEnabled();
+	if (reference) {
+		Lunagram::PaintReferenceBackdrop(
+			_controller,
+			_controller->currentChatTheme(),
+			this,
+			e->rect());
+	}
 	Painter p(this);
 
 	auto clip = e->rect();
-	p.fillRect(clip, st::historyComposeAreaBg);
+	if (!reference) {
+		p.fillRect(clip, st::historyComposeAreaBg);
+	}
 
 	if (_impl) {
 		int x = rtl() ? st::botKbScroll.width : _st->margin;
@@ -358,7 +411,7 @@ bool BotKeyboard::updateMarkup(HistoryItem *to, bool force) {
 	if (hasVisibleRows) {
 		_impl = std::make_unique<ReplyKeyboard>(
 			to,
-			std::make_unique<Style>(this, *_st));
+			std::make_unique<Style>(this, _controller, *_st));
 	}
 
 	resizeToWidth(width(), _maxOuterHeight);
@@ -406,7 +459,7 @@ void BotKeyboard::updateStyle(int newWidth) {
 	int implWidth = newWidth - st::botKbButton.margin - st::botKbScroll.width;
 	_st = _impl->isEnoughSpace(implWidth, st::botKbButton) ? &st::botKbButton : &st::botKbTinyButton;
 
-	_impl->setStyle(std::make_unique<Style>(this, *_st));
+	_impl->setStyle(std::make_unique<Style>(this, _controller, *_st));
 }
 
 void BotKeyboard::clearSelection() {
@@ -441,7 +494,10 @@ void BotKeyboard::updateSelected() {
 	auto p = mapFromGlobal(_lastMousePos);
 	auto x = rtl() ? st::botKbScroll.width : _st->margin;
 
-	auto link = _impl->getLink(p - QPoint(x, _st->margin));
+	const auto top = Lunagram::ReferenceDesignEnabled()
+		? st::botKbScroll.deltat
+		: _st->margin;
+	auto link = _impl->getLink(p - QPoint(x, top));
 	if (ClickHandler::setActive(link, this)) {
 		Ui::Tooltip::Hide();
 		setCursor(link ? style::cur_pointer : style::cur_default);

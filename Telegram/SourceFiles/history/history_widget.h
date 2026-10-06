@@ -627,6 +627,7 @@ private:
 	void setupShortcuts();
 	void setupGiftToChannelButton();
 	void setupDirectMessageButton();
+	void updateChannelButtonsGeometry();
 
 	void handlePeerMigration();
 

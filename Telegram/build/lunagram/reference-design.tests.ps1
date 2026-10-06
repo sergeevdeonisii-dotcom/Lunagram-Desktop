@@ -151,12 +151,12 @@ Check ($largeRadius -match 'static const auto result' -and $largeRadius -match '
 $messageStyle = Read-Source 'Telegram/SourceFiles/ui/chat/chat_style.cpp'
 Check ($messageStyle -match 'result\.msgBgCornersLarge,\s*BubbleRadiusLarge\(\),\s*result\.msgBg') 'Cached bubble corners preserve palette RGB and alpha'
 $design = Read-Source 'Telegram/SourceFiles/lunagram/design.cpp'
-Check ($design -notmatch 'background\.setAlpha\(' -and $design -notmatch 'static[^;\r\n]*(?:QColor|background|border)') 'Glass tint retains the selected palette alpha and reads color on each paint'
+Check ($design -notmatch 'background\.setAlpha\(' -and $design -notmatch 'static[^;\r\n]*(?:QColor|background|border)' -and $design -match 'tint.setAlpha\(std::min\(tint.alpha\(\), alpha\)\)') 'Glass tint stays palette-based, honors its alpha ceiling and reads colors on each paint'
 $appearance = Block-Source $design 'void EnsureReferenceAppearance\(\)\s*\{' 'EnsureReferenceAppearance'
 Check ($appearance -match 'readPref<bool>\("lunagram/liquid_appearance_v2", false\)' -and $appearance -match 'writePref<bool>\("lunagram/liquid_appearance_v2", true\)' -and $appearance -notmatch 'liquid_appearance_v1') 'Reference appearance migration is versioned and recorded only after applying the theme'
 Check ($appearance.IndexOf('Window::Theme::Apply(') -lt $appearance.IndexOf('writePref<bool>(') -and $appearance -match 'Window::Theme::KeepApplied\(\)') 'Appearance migration retains native apply/keep ordering'
 $backdrop = Block-Source $design 'void PaintReferenceBackdrop\([\s\S]*?\)\s*\{' 'PaintReferenceBackdrop'
-Check ($backdrop -match '!ReferenceDesignEnabled\(\)' -and $backdrop -match 'theme\.get\(\) != controller->defaultChatTheme\(\)\.get\(\)' -and $backdrop -match 'theme->background\(\)\.giftId') 'Shared wallpaper is gated to reference mode and the exact non-gift default theme'
+Check ($backdrop -match '!ReferenceDesignEnabled\(\)' -and $backdrop -notmatch 'theme\.get\(\) != controller->defaultChatTheme\(\)\.get\(\)' -and $backdrop -match 'theme->background\(\)\.giftId') 'Shared wallpaper supports the active non-gift theme while retaining the native gift fallback'
 Check ($backdrop -match 'content->size\(\)\.isEmpty\(\)' -and $backdrop -match 'widget\.get\(\) != content\.get\(\)' -and $backdrop -match '!content->isAncestorOf\(widget\.get\(\)\)') 'Shared wallpaper checks viewport size and widget ancestry before mapping'
 $legacyBackdrop = $backdrop.IndexOf('Window::SectionWidget::PaintBackground(controller, theme, widget, clip);')
 $mappedBackdrop = $backdrop.IndexOf('widget->mapTo(content, QPoint())')
@@ -166,6 +166,8 @@ Check ($backdrop -match 'PaintBackground\(\s*p,\s*theme,\s*content->size\(\),\s*
 $mainWidget = Read-Source 'Telegram/SourceFiles/mainwidget.cpp'
 $mainPaint = Block-Source $mainWidget 'void MainWidget::paintEvent\([^)]*\)\s*\{' 'MainWidget::paintEvent'
 Check ($mainPaint -match 'ReferenceDesignEnabled\(\) && !_showAnimation' -and $mainPaint -match 'Lunagram::PaintReferenceBackdrop\(') 'Main viewport paints the common reference wallpaper outside its slide animation'
+Check ($mainPaint -match '_controller->currentChatTheme\(\)' -and $mainPaint -notmatch '_controller->defaultChatTheme\(\)') 'Main viewport uses the selected chat wallpaper instead of a fixed green default'
+Check ($mainWidget -match 'activeChatChanges\(\) \| rpl::on_next\([\s\S]*?ReferenceDesignEnabled\(\)[\s\S]*?update\(\);[\s\S]*?lifetime\(\)\)') 'Active chat changes repaint the surrounding viewport without changing wallpaper settings'
 Check ($mainWidget -match 'defaultChatTheme\(\)->repaintBackgroundRequests\(\s*\) \| rpl::on_next\([\s\S]*?ReferenceDesignEnabled\(\)[\s\S]*?update\(\);[\s\S]*?lifetime\(\)\)') 'Native theme cache changes repaint the common viewport with a widget-bound lifetime'
 $mainGeometry = Block-Source $mainWidget 'void MainWidget::updateControlsGeometry\(\)\s*\{' 'MainWidget::updateControlsGeometry'
 Check ($mainGeometry -match 'floatPlayerUpdatePositions\(\);\s*if \(Lunagram::ReferenceDesignEnabled\(\)\) \{\s*update\(\);') 'Reference viewport repaint is deferred until the geometry update is complete'
@@ -295,7 +297,68 @@ $composerPaint = Block-Source $composer 'void PaintComposerBackground\([\s\S]*?\
 $reference = $composerPaint.IndexOf('ReferenceDesignEnabled()')
 $glassPreference = $composerPaint.IndexOf('Enabled(session, Flag::Glass)')
 Check ($reference -ge 0 -and $glassPreference -gt $reference) 'Reference glass is handled before the optional legacy glass preference'
-Check ($composerPaint -match 'PaintGlassPanel\(') 'Composer uses the shared palette-aware glass painter'
+Check ($composerPaint -match 'PaintComposerPanel\(' -and $composer -match 'void PaintComposerPanel\([\s\S]*?PaintGlassPanel\(') 'Composer uses the shared palette-aware glass painter through its panel helper'
+
+$glassPrepare = Block-Source $design 'void BackdropCache::prepare\([\s\S]*?\)\s*\{' 'BackdropCache::prepare'
+$glassCapture = Block-Source $design 'void BackdropCache::capture\([\s\S]*?\)\s*\{' 'BackdropCache::capture'
+$glassAccept = Block-Source $design 'void BackdropCache::accept\([\s\S]*?\)\s*\{' 'BackdropCache::accept'
+Check ($glassPrepare -match '_running' -and $glassPrepare -match '_consumers.size\(\) < kGlassConsumerLimit') 'Backdrop work and repaint consumers are bounded'
+Check ($glassCapture -match 'kGlassSourcePixels / pixels' -and $glassCapture -match 'Images::BlurLargeImage' -and $glassCapture -match 'crl::async') 'Glass computes a bounded real wallpaper blur outside the UI thread'
+Check ($glassAccept -match 'generation == _generation && _owner' -and $glassAccept -match '_running = false') 'Resize or theme changes reject stale blur work and unblock the next capture'
+Check ($design -notmatch '\bgrab\(|\brender\(|QGraphicsBlurEffect|QScreen::|grabWindow') 'Glass samples the native wallpaper plane without screen or foreground capture'
+Check ($design -match 'p.setClipPath\(ring, Qt::IntersectClip\)' -and $design -match 'cache->source\(\)') 'Rounded glass rims displace the actual sampled wallpaper'
+
+$chrome = Read-Source 'Telegram/SourceFiles/lunagram/window_chrome.cpp'
+$chromeGeometry = Block-Source $chrome 'void WindowChrome::rememberNormalGeometry\(\)\s*\{' 'WindowChrome::rememberNormalGeometry'
+$chromeState = Block-Source $chrome 'void WindowChrome::handleWindowStateChange\(\)\s*\{' 'WindowChrome::handleWindowStateChange'
+Check ($chromeGeometry -match '!_restorePending' -and $chromeGeometry -match '_lastWindowState == Qt::WindowNoState' -and $chromeGeometry -match '_window->windowState\(\) == Qt::WindowNoState') 'Chrome records only stable normal geometry outside a restore correction'
+Check ($chromeState -match 'state == _lastWindowState' -and $chromeState -match 'wasMaximized' -and $chromeState -match 'InvokeQueued\(this' -and $chromeState -match 'serial != _restoreSerial' -and $chromeState -match '_window->geometry\(\).topLeft\(\)' -and $chromeState -match '_normalGeometry.size\(\)') 'Chrome restores the saved client size after native frame correction, preserves drag-restore position and rejects stale work'
+Check ($chrome -match 'control \|\| menu' -and $chrome -match '_menu->setIsMenuButton\(true\)' -and $chrome -match 'tr::lng_main_menu\(\)') 'The header title exposes the native main menu as a client-area accessible button'
+
+Check ($dialogs -match 'referenceTitleRect\(\).intersected\(caption\)' -and $dialogsPaint -match 'const auto titleRect = referenceTitleRect\(\)' -and $dialogs -match 'crl::guard\(this, \[=\] \{ showMainMenu\(\); \}\)') 'Header menu hit geometry matches the painted title and retains the source lifetime guard'
+Check ($dialogs -match '_stories->setCollapsedPreviewHidden\(referenceHeader' -and $dialogs -match '_referenceStories->moveToRight\(' -and $dialogs -match 'st::dialogsReferenceStoriesSkip') 'Reference stories have a separate accessible entry outside the search pill'
+$stories = Read-Source 'Telegram/SourceFiles/dialogs/ui/dialogs_stories_list.cpp'
+Check ($stories -match '_collapsedPreviewHidden && _state == State::Small' -and $stories -match 'Qt::WA_TransparentForMouseEvents,\s*_collapsedPreviewHidden && _state != State::Full') 'Hidden collapsed stories neither paint over nor intercept the search; full stories remain interactive'
+Check ($dialogs -match '\{ childx, captionHeight, childw, childh \}' -and $dialogs -match '_scroll->y\(\) \+ _scroll->height\(\) - captionHeight') 'Forum child lists stay below the custom caption and above the footer'
+Check ($dialogs -match '\(_search->height\(\) - button->height\(\)\) / 2') 'Transient search controls center on the field rather than the top edge'
+Check ($navigation -notmatch 'NavigationBar::paintEvent' -and $navigation -notmatch 'PaintGlassPanel') 'Navigation inherits the full sidebar material without a duplicate rounded footer'
+
+$botKeyboard = Read-Source 'Telegram/SourceFiles/chat_helpers/bot_keyboard.cpp'
+$botPaint = Block-Source $botKeyboard 'void BotKeyboard::paintEvent\([^)]*\)\s*\{' 'BotKeyboard::paintEvent'
+$botBackground = Block-Source $botKeyboard 'void Style::paintButtonBg\([\s\S]*?\) const\s*\{' 'Bot keyboard button background'
+$botSelection = Block-Source $botKeyboard 'void BotKeyboard::updateSelected\(\)\s*\{' 'BotKeyboard::updateSelected'
+Check ($botPaint -match 'PaintReferenceBackdrop\(' -and $botPaint -match 'if \(!reference\)\s*\{\s*p.fillRect') 'Reference bot keyboards keep the wallpaper visible between their buttons'
+Check ($botBackground -match 'worldTransform\(\).mapRect\(rect\)' -and $botBackground -match 'p.resetTransform\(\)' -and $botBackground -match 'PaintGlassPanel\(') 'Bot button blur samples its actual widget rectangle after native painter translation'
+Check ($botBackground -match 'color == Color::Normal' -and $botBackground -match 'p.setBrush\(bg\)' -and $botKeyboard -match 'CachedCornerRadius::Small') 'Bot button color roles remain native and compact buttons have fitting ripple corners'
+Check ($botSelection -match '\? st::botKbScroll.deltat\s*: _st->margin' -and $botSelection -match 'getLink\(p - QPoint\(x, top\)\)') 'Reference bot button hit testing uses the same vertical origin as painting'
+foreach ($percent in @(100,125,150,175,200,250,300)) {
+    foreach ($marginBase in @(4,10)) {
+        foreach ($rtl in @($false,$true)) {
+            $keyboardX = Scale-Pixels $(if ($rtl) { 8 } else { $marginBase }) $percent
+            $keyboardY = Scale-Pixels 6 $percent
+            $buttonHeight = Scale-Pixels $(if ($marginBase -eq 4) { 25 } else { 38 }) $percent
+            foreach ($row in 0..3) {
+                $localY = $row * ($buttonHeight + (Scale-Pixels $marginBase $percent))
+                $paintY = $keyboardY + $localY
+                Check ($paintY - $keyboardY -eq $localY -and $keyboardX -ge 0) 'Bot keyboard paint and hit origins remain identical across rows, scales and RTL'
+            }
+        }
+    }
+}
+
+$normalSize = [pscustomobject]@{ W = 802; H = 626 }
+foreach ($cycle in 1..20) {
+    $saved = [pscustomobject]@{ W = $normalSize.W; H = $normalSize.H }
+    $normalSize = [pscustomobject]@{ W = $saved.W + 16; H = $saved.H + 16 }
+    $normalSize = $saved
+    Check ($normalSize.W -eq 802 -and $normalSize.H -eq 626) "Queued restore geometry model does not accumulate native frame deltas: cycle$cycle"
+}
+foreach ($area in @(@(1,1,1.0), @(1280,871,1.0), @(3840,2160,2.0), @(7680,4320,4.0))) {
+    $ratio = [Math]::Min($area[2] / 2.0, [Math]::Sqrt((768 * 1024) / ($area[0] * [double]$area[1])))
+    $sampleWidth = [Math]::Max(1, [Math]::Floor($area[0] * $ratio))
+    $sampleHeight = [Math]::Max(1, [Math]::Floor($area[1] * $ratio))
+    Check ($sampleWidth * $sampleHeight -le 768 * 1024) 'Shared source and blur images stay within their pixel budget at extreme viewport sizes'
+}
 
 $defaults = Read-Palette (Read-Source 'Telegram/lib_ui/ui/colors.palette') 'native'
 $overrides = Read-Palette (Read-Source 'Telegram/Resources/lunagram/liquid.tdesktop-palette') 'liquid'

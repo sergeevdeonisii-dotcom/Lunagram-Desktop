@@ -1,0 +1,225 @@
+param(
+    [string]$RepoRoot = (Join-Path $PSScriptRoot '../../..')
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
+$script:Checks = 0
+
+function Assert-Contract([bool]$Condition, [string]$Message) {
+    if (!$Condition) {
+        throw $Message
+    }
+    $script:Checks++
+}
+
+function Read-Source([string]$RelativePath) {
+    return [IO.File]::ReadAllText((Join-Path $RepoRoot $RelativePath))
+}
+
+function Function-Body([string]$Source, [string]$Name) {
+    $pattern = [regex]::Escape($Name) + '\s*\([^;]*?\)\s*(?:const\s*)?\{'
+    $match = [regex]::Match($Source, $pattern)
+    Assert-Contract $match.Success ('Missing function: ' + $Name)
+    $start = $match.Index + $match.Length - 1
+    $depth = 0
+    for ($index = $start; $index -lt $Source.Length; $index++) {
+        if ($Source[$index] -eq '{') { $depth++ }
+        if ($Source[$index] -eq '}') { $depth-- }
+        if ($depth -eq 0) {
+            return $Source.Substring($start, $index - $start + 1)
+        }
+    }
+    throw ('Unclosed function: ' + $Name)
+}
+
+function Native-Scale([int]$Value, [int]$Scale) {
+    return [int][math]::Floor($Value * $Scale / 100.0 - 0.01 + 0.5)
+}
+
+function Button-Panel([int]$X, [int]$Y, [int]$Width, [int]$Height, [int]$Diameter) {
+    $diameter = [math]::Min($Diameter, $Height)
+    $panelWidth = [math]::Max($diameter, $Width - $Height + $diameter)
+    return @(
+        ($X + [math]::Truncate(($Width - $panelWidth) / 2)),
+        ($Y + [math]::Truncate(($Height - $diameter) / 2)),
+        $panelWidth,
+        $diameter
+    )
+}
+
+function Downscaled-Size([double]$Width, [double]$Height, [int]$Limit) {
+    $factor = [math]::Min(1.0, [math]::Min($Limit / $Width, $Limit / $Height))
+    return @(
+        [math]::Max(1, [math]::Floor($Width * $factor + 0.5)),
+        [math]::Max(1, [math]::Floor($Height * $factor + 0.5))
+    )
+}
+
+$prefix = 'Telegram/SourceFiles/'
+$composer = Read-Source ($prefix + 'lunagram/composer.cpp')
+$history = Read-Source ($prefix + 'history/history_widget.cpp')
+$controls = Read-Source ($prefix + 'history/view/controls/history_view_compose_controls.cpp')
+$photo = Read-Source ($prefix + 'history/view/media/history_view_photo.cpp')
+$chatStyle = Read-Source ($prefix + 'ui/chat/chat.style')
+$helpersStyle = Read-Source ($prefix + 'chat_helpers/chat_helpers.style')
+$designStyle = Read-Source ($prefix + 'lunagram/lunagram_design.style')
+$nativeSize = Read-Source ($prefix + 'history/view/media/history_view_media_common.cpp')
+
+Assert-Contract ($chatStyle -match 'msgMaxWidth:\s*430px;') 'Plain text max width changed.'
+Assert-Contract ($chatStyle -match 'maxMediaSize:\s*430px;') 'Global media max width changed.'
+Assert-Contract ($chatStyle -match 'lunagramReferencePhotoMaxWidth:\s*320px;') 'Reference photo style cap missing.'
+Assert-Contract ($chatStyle -match 'historyGroupWidthMax:\s*maxMediaSize;') 'Album width changed.'
+Assert-Contract ($helpersStyle -match '(?s)lunagramReferenceComposeField:.*?heightMin:\s*40px;') 'Reference field height missing.'
+Assert-Contract ($designStyle -match 'lunagramReferenceHeaderButtonDiameter:\s*38px;') 'Reference circle style missing.'
+Assert-Contract ($designStyle -match 'lunagramReferencePanelInset:\s*5px;') 'Panel inset style changed; update the model.'
+Assert-Contract ($chatStyle -match '(?s)lunagramReferenceBotMenuButton: RoundButton\(historyBotMenuButton\).*?textBg:\s*transparent;.*?textBgOver:\s*transparent;.*?height:\s*38px;.*?textTop:\s*10px;') 'Bot Menu must be a separate transparent 38px native button.'
+
+$panel = Function-Body $composer 'PaintComposerPanel'
+Assert-Contract ($panel -match '&controller->session\(\) == session.get\(\)') 'Composer controller/session guard missing.'
+Assert-Contract ($panel -match 'controller->currentChatTheme\(\)') 'Composer uses a stale/default theme.'
+Assert-Contract ($panel -match 'bounds.isEmpty\(\)') 'Empty-panel guard missing.'
+Assert-Contract ($panel -match 'bounds.height\(\) / 2') 'Small surface radius is not bounded.'
+$circle = Function-Body $composer 'ComposerButtonPanel'
+Assert-Contract ($circle -match 'geometry.width\(\) - geometry.height\(\) \+ diameter') 'Paid Send surface must preserve native extra width.'
+$field = Function-Body $composer 'ComposerFieldPanel'
+Assert-Contract ($field -match 'field.setRight\(send.left\(\) - st::lunagramReferencePanelInset\)') 'LTR Send separation missing.'
+Assert-Contract ($field -match 'field.setLeft\(send.right\(\) \+ st::lunagramReferencePanelInset\)') 'RTL Send separation missing.'
+
+foreach ($source in @($history, $controls)) {
+    Assert-Contract ($source -match 'buttonsCenterTwice - button->height\(\)') 'Controls must use their actual heights on one axis.'
+    Assert-Contract ($source -match 'buttonsCenterTwice - st::historyMessagesTTL.iconButton.height') 'TTL must use its native internal button height.'
+    Assert-Contract ($source -match 'Lunagram::ComposerFieldPanel\(field, _send->geometry\(\)\)') 'Missing split middle composer panel.'
+    Assert-Contract ($source -match 'Lunagram::ComposerButtonPanel\(button->geometry\(\)\)') 'Buttons must use actual native geometry.'
+    Assert-Contract ($source -match 'fieldWidth\s*:\s*(?:width\(\)|size.width\(\))') 'Disabled field must honor reserved width in reference mode.'
+    Assert-Contract ($source -match 'updateExpandButtonGeometry\(\)') 'Native multiline editor handling missing.'
+    Assert-Contract ($source -match '(?s)std::array<QWidget\*, [57]>\{\s*_botMenu.button.get\(\)') 'Bot Menu must have its own glass surface.'
+}
+$channelGeometry = Function-Body $history 'HistoryWidget::updateChannelButtonsGeometry'
+Assert-Contract ($channelGeometry -match '!Lunagram::ReferenceDesignEnabled\(\)') 'Channel geometry must not change non-reference mode.'
+Assert-Contract ($channelGeometry -match 'myrtlrect\(') 'Channel middle button must mirror in RTL.'
+Assert-Contract ($channelGeometry -match '_joinChannel->setGeometry\(geometry\)') 'Join hit rectangle missing.'
+Assert-Contract ($channelGeometry -match '_muteUnmute->setGeometry\(geometry\)') 'Mute hit rectangle missing.'
+foreach ($name in @('setupGiftToChannelButton', 'setupDirectMessageButton')) {
+    $body = Function-Body $history ('HistoryWidget::' + $name)
+    Assert-Contract ($body -match 'static_cast<QWidget\*>\(this\)') 'Reference channel action must be a sibling.'
+    Assert-Contract ($body -match 'setParent\(newParent\)') 'Original non-reference child ownership missing.'
+    Assert-Contract ($body -match 'setClickedCallback') 'Native channel action callback missing.'
+}
+foreach ($name in @('refreshGiftToChannelShown', 'refreshDirectMessageShown')) {
+    $body = Function-Body $history ('HistoryWidget::' + $name)
+    Assert-Contract ($body -match '!_muteUnmute->isHidden\(\)') 'Sibling action may leak out of channel row.'
+    Assert-Contract ($body -match '!_joinChannel->isHidden\(\)') 'Join row presence guard missing.'
+}
+$paint = Function-Body $controls 'ComposeControls::paintBackground'
+Assert-Contract ($paint -match '(?s)if \(_regularWindow\s*&& &_st == &st::lunagramReferenceComposeControls\s*&& widget == _wrap.get\(\)\)') 'Non-window/overridden composer must retain its original paint path.'
+Assert-Contract ($paint -match '_header->geometry\(\).adjusted') 'Reply preview must have a separate surface.'
+
+$photoGate = Function-Body $photo 'Photo::maximumMediaSize'
+foreach ($guard in @(
+    'Lunagram::ReferenceDesignEnabled()',
+    '_parent->media() == this',
+    'media->photo() == _data.get()',
+    '!_storyId',
+    '!_serviceWidth',
+    '!_data->extendedMediaVideoDuration()',
+    '!IsHostedInstantViewMedia(_parent)',
+    '!_parent->data()->isFakeAboutView()',
+    '!_parent->data()->isSponsored()',
+    '_parent->delegate()->elementChatMode() != ElementChatMode::Narrow'
+)) {
+    Assert-Contract ($photoGate.Contains($guard)) ('Missing single-photo exclusion: ' + $guard)
+}
+Assert-Contract ($photoGate -match 'reference \? st::lunagramReferencePhotoMaxWidth : st::maxMediaSize') 'Reference-only photo cap missing.'
+foreach ($name in @('countOptimalSize', 'countCurrentSize')) {
+    $body = Function-Body $photo ('Photo::' + $name)
+    Assert-Contract ($body -match 'maximumMediaSize\(\)') 'Both photo layout passes must use the same cap.'
+    Assert-Contract ($body -match 'std::min\(st::msgMaxWidth, maximumSize\)') 'Caption can re-expand the photo beyond its cap.'
+    Assert-Contract ($body -match 'adjustHeightForLessCrop\(') 'Native photo crop/aspect adjustment missing.'
+    Assert-Contract ($body -match 'HostedInstantViewForcedSize\(') 'Hosted forced size path missing.'
+}
+foreach ($name in @('sizeForGroupingOptimal', 'sizeForGrouping')) {
+    $body = Function-Body $photo ('Photo::' + $name)
+    Assert-Contract ($body -notmatch 'maximumMediaSize|lunagramReference') 'Grouped photo sizing must remain native.'
+}
+Assert-Contract ($nativeSize -match '(?s)CountDesiredMediaSize\(QSize original\).*?DownscaledSize\(\s*style::ConvertScale\(original\),\s*\{ st::maxMediaSize, st::maxMediaSize \}') 'Native unmodified downscale contract changed.'
+
+foreach ($scale in @(100, 125, 133, 150, 175, 200, 250, 300)) {
+    $padding = Native-Scale 9 $scale
+    $minimum = Native-Scale 40 $scale
+    $diameter = Native-Scale 38 $scale
+    $inset = Native-Scale 5 $scale
+    $disabledContentHeight = (Native-Scale 46 $scale) - 2 * $padding
+    $disabledTop = [math]::Truncate(($minimum - $disabledContentHeight) / 2)
+    Assert-Contract ([math]::Abs($disabledTop + $disabledContentHeight / 2.0 - $minimum / 2.0) -le 0.5) 'Disabled native content is not centered in the reference field.'
+    Assert-Contract ($disabledTop -ge 0 -and $disabledTop + $disabledContentHeight -le $minimum) 'Disabled native content is clipped.'
+    foreach ($fieldPixels in @(40, 80, 140, 224)) {
+        $fieldHeight = Native-Scale $fieldPixels $scale
+        $rowHeight = $fieldHeight + 2 * $padding
+        $axisTwice = 2 * ($rowHeight - $padding) - $minimum
+        foreach ($heightPixels in @(28, 32, 40, 44, 46)) {
+            $height = Native-Scale $heightPixels $scale
+            $top = [math]::Truncate(($axisTwice - $height) / 2)
+            Assert-Contract ([math]::Abs($top + $height / 2.0 - $axisTwice / 2.0) -le 0.5) 'DPI button centers drift more than native integer rounding.'
+            Assert-Contract ($top -ge 0 -and $top + $height -le $rowHeight) 'Composer control clipped outside its allocated row.'
+        }
+        foreach ($sendPixels in @(44, 90, 160)) {
+            $sendWidth = Native-Scale $sendPixels $scale
+            $sendHeight = Native-Scale 46 $scale
+            $top = [math]::Truncate(($axisTwice - $sendHeight) / 2)
+            $surface = Button-Panel 0 $top $sendWidth $sendHeight $diameter
+            Assert-Contract ($surface[0] -ge 0 -and $surface[0] + $surface[2] -le $sendWidth) 'Send surface overflows its real widget.'
+            Assert-Contract ([math]::Abs($surface[1] + $surface[3] / 2.0 - ($top + $sendHeight / 2.0)) -le 0.5) 'Send circle is not centered.'
+            Assert-Contract ($sendPixels -ne 44 -or $surface[2] -eq $diameter) 'Ordinary Send must be circular.'
+            Assert-Contract ($sendPixels -eq 44 -or $surface[2] -gt $diameter) 'Paid Send width was cropped to a circle.'
+        }
+    }
+    foreach ($widthPixels in @(380, 512, 720, 1080)) {
+        $width = Native-Scale $widthPixels $scale
+        $side = Native-Scale 46 $scale
+        foreach ($direct in @($false, $true)) {
+            foreach ($gift in @($false, $true)) {
+                $left = if ($direct) { $side + $inset } else { 0 }
+                $right = if ($gift) { $side + $inset } else { 0 }
+                $middleWidth = $width - $left - $right
+                Assert-Contract ($middleWidth -gt 0) 'Channel middle action has no usable width.'
+                foreach ($rtl in @($false, $true)) {
+                    $middleX = if ($rtl) { $right } else { $left }
+                    $directX = if ($rtl) { $width - $side } else { 0 }
+                    $giftX = if ($rtl) { 0 } else { $width - $side }
+                    $middleEnd = $middleX + $middleWidth
+                    Assert-Contract (!$direct -or ($middleEnd -le $directX -or $middleX -ge $directX + $side)) 'Channel Direct overlaps the central hit rectangle.'
+                    Assert-Contract (!$gift -or ($middleEnd -le $giftX -or $middleX -ge $giftX + $side)) 'Channel Gift overlaps the central hit rectangle.'
+                }
+            }
+        }
+    }
+    $limit = Native-Scale 320 $scale
+    $bubbleMinimum = Native-Scale 200 $scale
+    foreach ($widthPixels in @(128, 360, 1280)) {
+        foreach ($ratio in @(0.25, 0.5, 1.0, 1.5, 4.0)) {
+            $sourceWidth = Native-Scale $widthPixels $scale
+            $sourceHeight = [math]::Max(1, [math]::Floor($sourceWidth * $ratio + 0.5))
+            $desired = Downscaled-Size $sourceWidth $sourceHeight $limit
+            Assert-Contract ($desired[0] -le $limit -and $desired[1] -le $limit) 'Desired single-photo size exceeds the cap.'
+            Assert-Contract ($desired[0] -le $sourceWidth -and $desired[1] -le $sourceHeight) 'Desired thumbnail was upscaled.'
+            foreach ($captionPixels in @(0, 100, 320, 430, 800)) {
+                $caption = [math]::Min((Native-Scale $captionPixels $scale), $limit)
+                $optimalWidth = [math]::Max([math]::Max($desired[0], $desired[1]), $bubbleMinimum)
+                $optimalWidth = [math]::Min([math]::Max($optimalWidth, $caption), $limit)
+                Assert-Contract ($optimalWidth -le $limit) 'Caption re-expanded optimal photo width.'
+                foreach ($requestPixels in @(60, 160, 240, 320, 512)) {
+                    $request = Native-Scale $requestPixels $scale
+                    $thumbMaximum = [math]::Min($request, $limit)
+                    $currentImage = Downscaled-Size $desired[0] $desired[1] ([math]::Min($request, $optimalWidth))
+                    $minimumWidth = [math]::Min($thumbMaximum, $bubbleMinimum)
+                    $currentWidth = [math]::Min([math]::Max([math]::Max($currentImage[0], $minimumWidth), $caption), $thumbMaximum)
+                    Assert-Contract ($currentWidth -le $request -and $currentWidth -le $limit) 'Current photo/caption width exceeds the viewport or reference cap.'
+                }
+            }
+        }
+    }
+}
+
+Write-Output ('PASS ' + $script:Checks + ' chat layout source/model contracts. No Qt compilation, native visual test, UI, account access or build was performed.')

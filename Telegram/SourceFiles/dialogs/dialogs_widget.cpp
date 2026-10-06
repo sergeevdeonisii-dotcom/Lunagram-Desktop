@@ -479,6 +479,18 @@ Widget::Widget(
 			controller->show(PrepareContactsBox(controller));
 		});
 		_referenceCompose->show();
+		_referenceStories.create(
+			_searchControls,
+			st::dialogsReferenceStoriesButton);
+		_referenceStories->setFocusPolicy(Qt::StrongFocus);
+		_referenceStories->hide();
+		tr::lng_media_type_stories() | rpl::on_next([=](const QString &text) {
+			_referenceStories->setAccessibleName(text);
+		}, _referenceStories->lifetime());
+		_referenceStories->setClickedCallback([=] {
+			storiesToggleExplicitExpand(!_storiesExplicitExpand);
+			_scroll->setOverscrollDefaults(0, 0);
+		});
 		_navigation = base::make_unique_q<Lunagram::NavigationBar>(
 			this,
 			controller,
@@ -1870,6 +1882,7 @@ void Widget::setupStories() {
 
 	_stories->emptyValue() | rpl::skip(1) | rpl::on_next([=] {
 		updateStoriesVisibility();
+		updateControlsGeometry();
 	}, lifetime());
 
 	_stories->widthValue() | rpl::on_next([=] {
@@ -2957,6 +2970,14 @@ void Widget::updateStoriesVisibility() {
 		updateLockUnlockPosition();
 	}
 	updateStoriesTitleShown();
+	if (_referenceStories) {
+		const auto shown = referenceStoriesButtonShown();
+		const auto changed = (shown != !_referenceStories->isHidden());
+		_referenceStories->setVisible(shown);
+		if (changed) {
+			updateControlsGeometry();
+		}
+	}
 }
 
 void Widget::updateStoriesTitleShown() {
@@ -4046,9 +4067,18 @@ void Widget::openChildList(
 		&& (params.animated == anim::type::normal);
 	if (animated) {
 		destroyChildListCanvas();
+		const auto captionHeight = Lunagram::ReferenceDesignEnabled()
+			? st::lunagramWindowCaptionHeight
+			: 0;
 		slide.oldContentCache = Ui::GrabWidget(
 			this,
-			QRect(_narrowWidth, 0, width() - _narrowWidth, height()));
+			QRect(
+				_narrowWidth,
+				captionHeight,
+				width() - _narrowWidth,
+				captionHeight
+					? std::max(_scroll->y() + _scroll->height() - captionHeight, 0)
+					: height()));
 	}
 	auto copy = params;
 	copy.childColumn = false;
@@ -4590,6 +4620,16 @@ void Widget::updateSearchFromVisibility(bool fast) {
 
 void Widget::updateControlsGeometry() {
 	const auto referenceHeader = referenceHeaderShown();
+	const auto storiesButtonShown = referenceStoriesButtonShown();
+	if (_referenceStories) {
+		_referenceStories->setVisible(storiesButtonShown);
+	}
+	if (_stories) {
+		_stories->setCollapsedPreviewHidden(referenceHeader
+			&& !_openedFolder
+			&& !_openedForum
+			&& !_openedCommunity);
+	}
 	const auto &filterStyle = referenceHeader
 		? st::dialogsReferenceFilter
 		: st::dialogsFilter;
@@ -4611,10 +4651,20 @@ void Widget::updateControlsGeometry() {
 		const auto composeWidth = referenceHeader
 			? _referenceCompose->width()
 			: 0;
+		const auto caption = QRect(
+			0,
+			0,
+			std::max(width() - composeWidth, 0),
+			captionHeight);
+		const auto menuArea = referenceHeader
+			? referenceTitleRect().intersected(caption)
+			: QRect();
 		Lunagram::UpdateWindowChromeCaption(
 			controller(),
 			this,
-			QRect(0, 0, std::max(width() - composeWidth, 0), captionHeight));
+			caption,
+			menuArea,
+			crl::guard(this, [=] { showMainMenu(); }));
 	}
 	const auto navigationAvailable = _navigation
 		&& (width() >= st::dialogsReferenceNavigationMinimumWidth)
@@ -4657,7 +4707,10 @@ void Widget::updateControlsGeometry() {
 			: (st::dialogsFilterPadding.x() + _mainMenu.toggle->width()))
 			+ st::dialogsFilterPadding.x());
 	const auto filterRight = referenceHeader
-		? st::dialogsReferenceSearchSide
+		? (st::dialogsReferenceSearchSide
+			+ (storiesButtonShown
+				? (_referenceStories->width() + st::dialogsReferenceStoriesSkip)
+				: 0))
 		: (st::dialogsFilterSkip + st::dialogsFilterPadding.x());
 	const auto filterWidth = std::max(ratiow, smallw)
 		- filterLeft
@@ -4685,6 +4738,12 @@ void Widget::updateControlsGeometry() {
 		_referenceSearchHint->setGeometry(_search->rect());
 		updateReferenceSearchHint();
 	}
+	if (storiesButtonShown) {
+		_referenceStories->moveToRight(
+			st::dialogsReferenceSearchSide,
+			(filterAreaHeight - _referenceStories->height()) / 2);
+		_referenceStories->raise();
+	}
 
 	auto mainMenuLeft = anim::interpolate(
 		st::dialogsFilterPadding.x(),
@@ -4706,12 +4765,19 @@ void Widget::updateControlsGeometry() {
 		searchLeft,
 		st::dialogsFilterPadding.y());
 
+	const auto searchButtonTop = [&](const auto &button) {
+		return _search->y() + (referenceHeader
+			? (_search->height() - button->height()) / 2
+			: 0);
+	};
 	auto right = filterLeft + filterWidth;
-	_cancelSearch->moveToLeft(right - _cancelSearch->width(), _search->y());
+	_cancelSearch->moveToLeft(
+		right - _cancelSearch->width(),
+		searchButtonTop(_cancelSearch));
 	right -= _jumpToDate->width();
-	_jumpToDate->moveToLeft(right, _search->y());
+	_jumpToDate->moveToLeft(right, searchButtonTop(_jumpToDate));
 	right -= _chooseFromUser->width();
-	_chooseFromUser->moveToLeft(right, _search->y());
+	_chooseFromUser->moveToLeft(right, searchButtonTop(_chooseFromUser));
 
 	const auto barw = width();
 	const auto expandedStoriesTop = filterAreaTop + filterAreaHeight;
@@ -4859,13 +4925,19 @@ void Widget::updateControlsGeometry() {
 
 	if (_childList) {
 		const auto childw = std::max(_narrowWidth, width() - scrollWidth);
-		const auto childh = _scroll->y() + _scroll->height();
+		const auto childh = std::max(
+			_scroll->y() + _scroll->height() - captionHeight,
+			0);
 		const auto childx = width() - childw;
 		_childList->setGeometryWithTopMoved(
-			{ childx, 0, childw, childh },
+			{ childx, captionHeight, childw, childh },
 			_topDelta);
 		const auto line = st::lineWidth;
-		_childListShadow->setGeometry(childx - line, 0, line, childh);
+		_childListShadow->setGeometry(
+			childx - line,
+			captionHeight,
+			line,
+			childh);
 	}
 }
 
@@ -4992,13 +5064,11 @@ void Widget::paintEvent(QPaintEvent *e) {
 
 	const auto referencePanel = Lunagram::ReferenceDesignEnabled();
 	if (referencePanel && !_showAnimation) {
-		if (const auto theme = controller()->defaultChatTheme()) {
-			Lunagram::PaintReferenceBackdrop(
-				controller(),
-				theme.get(),
-				this,
-				e->rect());
-		}
+		Lunagram::PaintReferenceBackdrop(
+			controller(),
+			controller()->currentChatTheme(),
+			this,
+			e->rect());
 	}
 	Painter p(this);
 	QRect r(e->rect());
@@ -5011,26 +5081,23 @@ void Widget::paintEvent(QPaintEvent *e) {
 	}
 	if (referencePanel) {
 		Lunagram::PaintGlassPanel(
+			controller(),
+			controller()->currentChatTheme(),
+			this,
 			p,
 			rect(),
 			st::dialogsBg->c,
 			st::lunagramReferenceCardRadius);
-		if (_layout == Layout::Main) {
-			const auto titleWidth = std::max(
-				width() - 2 * st::dialogsReferenceCaptionTitleSide,
-				0);
+		if (referenceHeaderShown()) {
+			const auto titleRect = referenceTitleRect();
 			p.setFont(st::semiboldFont);
 			p.setPen(st::dialogsNameFg);
 			p.drawText(
-				QRect(
-					st::dialogsReferenceCaptionTitleSide,
-					st::dialogsReferenceCaptionTitleTop,
-					titleWidth,
-					st::lunagramWindowCaptionHeight),
+				titleRect,
 				Qt::AlignCenter,
 				st::semiboldFont->elided(
 					tr::lng_recent_chats(tr::now),
-					titleWidth));
+					titleRect.width()));
 		}
 	}
 	const auto bg = referencePanel
@@ -5175,6 +5242,30 @@ bool Widget::referenceHeaderShown() const {
 			width(),
 			_narrowWidth,
 			_childListShown.current()) >= minimumWidth);
+}
+
+QRect Widget::referenceTitleRect() const {
+	return QRect(
+		st::dialogsReferenceCaptionTitleSide,
+		st::dialogsReferenceCaptionTitleTop,
+		std::max(width() - 2 * st::dialogsReferenceCaptionTitleSide, 0),
+		st::lunagramWindowCaptionHeight);
+}
+
+bool Widget::referenceStoriesButtonShown() const {
+	return _referenceStories
+		&& referenceHeaderShown()
+		&& _stories
+		&& !_stories->empty()
+		&& !_openedFolder
+		&& !_openedForum
+		&& !_openedCommunity
+		&& !_childList
+		&& !_showAnimation
+		&& !_searchHasFocus
+		&& !_searchSuggestionsLocked
+		&& _searchState.query.isEmpty()
+		&& !_searchState.inChat;
 }
 
 PeerData *Widget::searchInPeer() const {

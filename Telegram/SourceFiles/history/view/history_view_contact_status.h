@@ -31,7 +31,8 @@ class SlidingBar final {
 public:
 	SlidingBar(
 		not_null<Ui::RpWidget*> parent,
-		object_ptr<Ui::RpWidget> wrapped);
+		object_ptr<Ui::RpWidget> wrapped,
+		bool referencePanel = false);
 
 	void setVisible(bool visible);
 	void raise();
@@ -53,7 +54,7 @@ public:
 	}
 
 private:
-	void setup(not_null<Ui::RpWidget*> parent);
+	void setup(not_null<Ui::RpWidget*> parent, bool referencePanel);
 
 	Ui::SlideWrap<Ui::RpWidget> _wrapped;
 	Ui::PlainShadow _shadow;

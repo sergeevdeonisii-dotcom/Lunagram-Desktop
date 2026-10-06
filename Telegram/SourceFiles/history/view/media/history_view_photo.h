@@ -117,6 +117,7 @@ private:
 
 	QSize countOptimalSize() override;
 	QSize countCurrentSize(int newWidth) override;
+	[[nodiscard]] int maximumMediaSize() const;
 	[[nodiscard]] int adjustHeightForLessCrop(
 		QSize dimensions,
 		QSize current) const;

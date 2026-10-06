@@ -167,6 +167,7 @@ mediaInPaletteSelected: TextPalette(defaultTextPalette) {
 
 minPhotoSize: 100px;
 maxMediaSize: 430px;
+lunagramReferencePhotoMaxWidth: 320px;
 maxStickerSize: 224px;
 maxAnimatedEmojiSize: 112px;
 maxGifSize: 320px;
@@ -253,6 +254,14 @@ historyBotMenuButton: RoundButton(defaultActiveButton) {
 	width: -24px;
 	height: 30px;
 	textTop: 6px;
+}
+lunagramReferenceBotMenuButton: RoundButton(historyBotMenuButton) {
+	textFg: historyComposeIconFg;
+	textFgOver: historyComposeIconFgOver;
+	textBg: transparent;
+	textBgOver: transparent;
+	height: 38px;
+	textTop: 10px;
 }
 
 topicButtonSkip: 3px;

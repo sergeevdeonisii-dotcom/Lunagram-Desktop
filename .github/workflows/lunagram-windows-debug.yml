@@ -70,6 +70,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned stable base could not be fetched.' }
           & .\Telegram\build\lunagram\features.tests.ps1
           & .\Telegram\build\lunagram\reference-design.tests.ps1
+          & .\Telegram\build\lunagram\chat-layout.tests.ps1
 
       - name: Initialize x64 MSVC 14.44 and Windows SDK
         uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223

@@ -18,6 +18,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 #include "history/history.h"
 #include "lang/lang_keys.h"
+#include "lunagram/design.h"
+#include "lunagram/lunagram_settings.h"
 #include "main/main_session.h"
 #include "settings/settings_credits_graphics.h" // CreditsEntryBoxStyleOverrides
 #include "ui/widgets/labels.h"
@@ -34,10 +36,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/popup_menu.h"
 #include "ui/painter.h"
 #include "window/window_session_controller.h"
-#include "styles/style_chat.h"
-#include "styles/style_menu_icons.h"
 
 #include <QtGui/QtEvents>
+
+#include "styles/style_chat.h"
+#include "styles/style_lunagram_design.h"
+#include "styles/style_menu_icons.h"
 
 namespace HistoryView {
 namespace {
@@ -249,7 +253,8 @@ TranslateBar::TranslateBar(
 		_wrap.heightValue(),
 		rpl::mappers::_1 && rpl::mappers::_2 > 0
 	) | rpl::filter([=](bool shown) {
-		return (shown == _shadow->isHidden());
+		return !Lunagram::ReferenceDesignEnabled()
+			&& (shown == _shadow->isHidden());
 	}));
 
 	setup(history);
@@ -288,11 +293,12 @@ void TranslateBar::setup(not_null<History*> history) {
 	};
 	const auto button = static_cast<Ui::AbstractButton*>(_wrap.entity());
 	button->resize(0, st::historyTranslateBarHeight);
-	button->setAttribute(Qt::WA_OpaquePaintEvent);
+	button->setAttribute(Qt::WA_OpaquePaintEvent,
+		!Lunagram::ReferenceDesignEnabled());
 
 	button->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
-		QPainter(button).fillRect(clip, st::historyComposeButtonBg);
+		paintBackground(clip);
 	}, button->lifetime());
 
 	button->setClickedCallback([=] {
@@ -615,6 +621,28 @@ void TranslateBar::showToast(
 		buttonCallback();
 		hideToast();
 	});
+}
+
+void TranslateBar::paintBackground(QRect clip) {
+	const auto button = _wrap.entity();
+	if (!Lunagram::ReferenceDesignEnabled()) {
+		QPainter(button).fillRect(clip, st::historyComposeButtonBg);
+		return;
+	}
+	const auto theme = _controller->currentChatTheme();
+	Lunagram::PaintReferenceBackdrop(_controller, theme, button, clip);
+	auto p = QPainter(button);
+	p.setClipRect(clip, Qt::IntersectClip);
+	const auto inset = st::lunagramReferencePanelInset;
+	const auto bounds = button->rect().adjusted(inset, inset, -inset, -inset);
+	Lunagram::PaintGlassPanel(
+		_controller,
+		theme,
+		button,
+		p,
+		bounds,
+		st::historyComposeButtonBg->c,
+		std::min(st::lunagramReferencePanelRadius, bounds.height() / 2));
 }
 
 void TranslateBar::show() {

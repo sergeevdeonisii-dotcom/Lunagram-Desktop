@@ -42,3 +42,17 @@ lunagramTrafficLightTop: 18px;
 lunagramTrafficLightGlyphSize: 6px;
 lunagramTrafficLightGlyphWidth: 1px;
 lunagramReferenceTitleHeight: 0px;
+
+lunagramGlassBlurRadius: 24px;
+lunagramGlassRefractionWidth: 7px;
+lunagramGlassRefractionShift: 3px;
+lunagramGlassRefractionOpacity: 0.32;
+lunagramGlassTintAlpha: 190;
+lunagramGlassSidebarTintAlpha: 212;
+lunagramGlassDarkTintAlpha: 162;
+lunagramGlassHighlightAlpha: 92;
+lunagramGlassShadeAlpha: 26;
+lunagramGlassHighlightWidth: 1px;
+lunagramGlassShadowWidth: 6px;
+lunagramGlassShadowOffset: 2px;
+lunagramGlassShadowAlpha: 18;

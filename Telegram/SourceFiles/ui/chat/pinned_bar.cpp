@@ -14,19 +14,23 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/shadow.h"
 #include "ui/widgets/buttons.h"
 #include "ui/wrap/fade_wrap.h"
-#include "styles/style_chat_helpers.h"
-#include "styles/style_lunagram_design.h"
-#include "styles/palette.h"
+#include "window/window_session_controller.h"
 
 #include <QtGui/QtEvents>
+
+#include "styles/palette.h"
+#include "styles/style_chat_helpers.h"
+#include "styles/style_lunagram_design.h"
 
 namespace Ui {
 
 PinnedBar::PinnedBar(
-	not_null<QWidget*> parent,
-	Fn<bool()> customEmojiPaused,
-	rpl::producer<> customEmojiPausedChanges)
-: _wrap(parent, object_ptr<RpWidget>(parent))
+		not_null<QWidget*> parent,
+		Fn<bool()> customEmojiPaused,
+		rpl::producer<> customEmojiPausedChanges,
+		not_null<Window::SessionController*> controller)
+: _controller(controller)
+, _wrap(parent, object_ptr<RpWidget>(parent))
 , _shadow(std::make_unique<PlainShadow>(_wrap.parentWidget()))
 , _customEmojiPaused(std::move(customEmojiPaused)) {
 	_wrap.hide(anim::type::instant);
@@ -43,16 +47,25 @@ PinnedBar::PinnedBar(
 
 	_wrap.entity()->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
-		auto p = QPainter(_wrap.entity());
 		if (Lunagram::ReferenceDesignEnabled()) {
+			const auto theme = _controller->currentChatTheme();
+			Lunagram::PaintReferenceBackdrop(
+				_controller,
+				theme,
+				_wrap.entity(),
+				clip);
+			auto p = QPainter(_wrap.entity());
 			const auto inset = st::lunagramReferencePanelInset;
 			p.setClipRect(clip);
 			Lunagram::PaintGlassPanel(
+				_controller,
+				theme,
+				_wrap.entity(),
 				p,
 				_wrap.entity()->rect().adjusted(inset, inset, -inset, -inset),
 				st::historyPinnedBg->c);
 		} else {
-			p.fillRect(clip, st::historyPinnedBg);
+			QPainter(_wrap.entity()).fillRect(clip, st::historyPinnedBg);
 		}
 	}, lifetime());
 	_wrap.setAttribute(Qt::WA_OpaquePaintEvent, !Lunagram::ReferenceDesignEnabled());

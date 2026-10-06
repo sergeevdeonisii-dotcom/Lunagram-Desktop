@@ -22,7 +22,6 @@ public:
 		Fn<void()> showChats);
 
 protected:
-	void paintEvent(QPaintEvent *e) override;
 	void resizeEvent(QResizeEvent *e) override;
 
 private:

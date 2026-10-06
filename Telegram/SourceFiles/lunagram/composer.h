@@ -8,6 +8,7 @@
 #include <memory>
 
 class QPainter;
+class QWidget;
 
 namespace Main {
 class Session;
@@ -61,10 +62,20 @@ void InitComposerEffects(
 	not_null<Main::Session*> session,
 	not_null<Ui::InputField*> field,
 	Fn<void()> repaint);
+[[nodiscard]] QRect ComposerButtonPanel(QRect geometry);
+[[nodiscard]] QRect ComposerFieldPanel(QRect field, QRect send);
+void PaintComposerPanel(
+	QPainter &p,
+	QRect bounds,
+	not_null<Main::Session*> session,
+	Window::SessionController *controller,
+	QWidget *widget);
 void PaintComposerBackground(
 	QPainter &p,
 	const QRect &bounds,
 	not_null<Main::Session*> session,
-	bool fillBackground = true);
+	bool fillBackground = true,
+	Window::SessionController *controller = nullptr,
+	QWidget *widget = nullptr);
 
 } // namespace Lunagram

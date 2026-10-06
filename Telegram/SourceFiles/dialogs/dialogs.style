@@ -120,6 +120,7 @@ dialogsReferenceNavigationMinimumWidth: 160px;
 dialogsReferenceCaptionTitleSide: 76px;
 dialogsReferenceCaptionTitleTop: 7px;
 dialogsReferenceSearchSide: 8px;
+dialogsReferenceStoriesSkip: 4px;
 dialogsReferenceSearchControlsHeight: 50px;
 dialogsReferenceSearchIconSize: 14px;
 dialogsReferenceSearchIconSkip: 5px;
@@ -138,6 +139,16 @@ lunagramReferenceNewChat: IconButton {
 	iconPosition: point(3px, 3px);
 	rippleAreaPosition: point(0px, 0px);
 	rippleAreaSize: 30px;
+	ripple: defaultRippleAnimationBgOver;
+}
+dialogsReferenceStoriesButton: IconButton {
+	width: 28px;
+	height: 28px;
+	icon: icon {{ "menu/stories_saved_section", dialogsMenuIconFg }};
+	iconOver: icon {{ "menu/stories_saved_section", dialogsMenuIconFgOver }};
+	iconPosition: point(2px, 2px);
+	rippleAreaPosition: point(0px, 0px);
+	rippleAreaSize: 28px;
 	ripple: defaultRippleAnimationBgOver;
 }
 communityRequestableListItem: PeerListItem(defaultPeerListItem) {

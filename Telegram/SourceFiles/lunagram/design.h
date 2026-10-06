@@ -32,4 +32,13 @@ void PaintGlassPanel(
 	QColor background,
 	int radius = 0);
 
+void PaintGlassPanel(
+	not_null<Window::SessionController*> controller,
+	not_null<Ui::ChatTheme*> theme,
+	not_null<QWidget*> widget,
+	QPainter &p,
+	QRect bounds,
+	QColor tint,
+	int radius = 0);
+
 } // namespace Lunagram

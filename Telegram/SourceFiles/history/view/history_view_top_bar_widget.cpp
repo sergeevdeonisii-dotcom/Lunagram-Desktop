@@ -519,10 +519,11 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 		return;
 	}
 	updateConnectingState();
+	const auto theme = _controller->currentChatTheme();
 	if (Lunagram::ReferenceDesignEnabled()) {
 		Lunagram::PaintReferenceBackdrop(
 			_controller,
-			_controller->currentChatTheme(),
+			theme,
 			this,
 			e->rect());
 	}
@@ -544,6 +545,9 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 			|| _chooseForReportReason;
 		if (selected || rootChatsListBar()) {
 			Lunagram::PaintGlassPanel(
+				_controller,
+				theme,
+				this,
 				p,
 				rect().adjusted(inset, inset, -inset, -inset),
 				st::topBarBg->c);
@@ -557,6 +561,9 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 				: backLeft + back.width() + inset;
 			const auto right = width() - _rightTaken - inset;
 			Lunagram::PaintGlassPanel(
+				_controller,
+				theme,
+				this,
 				p,
 				myrtlrect(left, inset, std::max(right - left, 0), height() - 2 * inset),
 				st::topBarBg->c);
@@ -576,6 +583,9 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 						center - QPoint(diameter / 2, diameter / 2),
 						QSize(diameter, diameter));
 					Lunagram::PaintGlassPanel(
+						_controller,
+						theme,
+						this,
 						p,
 						bounds,
 						st::topBarBg->c,

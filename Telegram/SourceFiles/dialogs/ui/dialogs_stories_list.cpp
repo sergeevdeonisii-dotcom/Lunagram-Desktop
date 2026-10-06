@@ -378,6 +378,9 @@ List::Layout List::computeLayout(float64 expanded) const {
 }
 
 void List::paintEvent(QPaintEvent *e) {
+	if (_collapsedPreviewHidden && _state == State::Small) {
+		return;
+	}
 	const auto hidden = _hiddenAnimation.value(toggledHidden() ? 1. : 0.);
 	if (hidden >= 1.) {
 		return;
@@ -398,6 +401,9 @@ void List::paintEvent(QPaintEvent *e) {
 	const auto layered = (layout.single < (photo + 4 * line))
 		|| (hidden > 0.);
 	auto p = QPainter(this);
+	if (_collapsedPreviewHidden) {
+		p.setClipRect(_geometryFull.translated(-pos()), Qt::IntersectClip);
+	}
 	if (layered) {
 		ensureLayer();
 		auto q = QPainter(&_layer);
@@ -952,6 +958,20 @@ void List::setExpandedHeight(int height, bool momentum) {
 	update();
 }
 
+void List::setCollapsedPreviewHidden(bool hidden) {
+	if (_collapsedPreviewHidden == hidden) {
+		return;
+	}
+	_collapsedPreviewHidden = hidden;
+	setAttribute(
+		Qt::WA_TransparentForMouseEvents,
+		_collapsedPreviewHidden && _state != State::Full);
+	_lastCollapsedGeometry = {};
+	toggleTooltip(true);
+	_collapsedGeometryChanged.fire({});
+	update();
+}
+
 bool List::checkForFullState() {
 	if (_expandCatchUpAnimation.animating()
 		|| _expandedAnimation.animating()
@@ -1091,6 +1111,7 @@ void List::raiseTooltip() {
 
 void List::toggleTooltip(bool fast) {
 	const auto shown = !_expanded
+		&& !_collapsedPreviewHidden
 		&& !_expandedAnimation.animating()
 		&& !isHidden()
 		&& _tooltipNotHidden.current()
@@ -1136,6 +1157,9 @@ void List::updateTooltipGeometry() {
 
 List::CollapsedGeometry List::collapsedGeometryCurrent() const {
 	const auto expanded = _expandedAnimation.value(_expanded ? 2. : 0.);
+	if (_collapsedPreviewHidden) {
+		return { QRect(), std::min(expanded, 1.), 0. };
+	}
 	if (expanded >= 1.) {
 		const auto single = 2 * _st.full.photoLeft + _st.full.photo;
 		return { QRect(), 1., float64(single) };
@@ -1213,6 +1237,9 @@ void List::setState(State state) {
 		return;
 	}
 	_state = state;
+	setAttribute(
+		Qt::WA_TransparentForMouseEvents,
+		_collapsedPreviewHidden && _state != State::Full);
 	updateGeometry();
 }
 

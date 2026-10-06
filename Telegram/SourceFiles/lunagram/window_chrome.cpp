@@ -47,7 +47,7 @@ TrafficLightButton::TrafficLightButton(QWidget *parent, Control control)
 : AbstractButton(parent)
 , _control(control) {
 	resize(st::lunagramTrafficLightHitSize, st::lunagramTrafficLightHitSize);
-	setFocusPolicy(Qt::StrongFocus);
+	setFocusPolicy(Qt::TabFocus);
 	setPointerCursor(false);
 	show();
 }
@@ -101,8 +101,23 @@ WindowChrome::WindowChrome(
 , _visibilityChanged(std::move(visibilityChanged))
 , _close(Ui::CreateChild<TrafficLightButton>(this, Control::Close))
 , _minimize(Ui::CreateChild<TrafficLightButton>(this, Control::Minimize))
-, _maximizeRestore(Ui::CreateChild<TrafficLightButton>(this, Control::Maximize)) {
+, _maximizeRestore(Ui::CreateChild<TrafficLightButton>(this, Control::Maximize))
+, _menu(Ui::CreateChild<Ui::AbstractButton>(this)) {
 	hide();
+	_lastWindowState = _window->windowState();
+	_normalGeometry = _window->geometry();
+	_menu->setFocusPolicy(Qt::TabFocus);
+	_menu->setIsMenuButton(true);
+	_menu->hide();
+	_menu->setClickedCallback([=] {
+		if (_menuClicked && captionSourceShown()) {
+			_menuClicked();
+		}
+	});
+	tr::lng_main_menu() | rpl::on_next([=](const QString &text) {
+		_menu->setAccessibleName(text);
+		_menu->setToolTip(text);
+	}, lifetime());
 	const auto buttons = std::array{ _close, _minimize, _maximizeRestore };
 	const auto size = st::lunagramTrafficLightHitSize;
 	auto left = st::lunagramTrafficLightLeft - size / 2;
@@ -119,10 +134,7 @@ WindowChrome::WindowChrome(
 			_window->windowState() | Qt::WindowMinimized);
 	});
 	_maximizeRestore->setClickedCallback([=] {
-		const auto state = _window->windowState();
-		_window->setWindowState((state & Qt::WindowMaximized)
-			? state & ~Qt::WindowMaximized
-			: state | Qt::WindowMaximized);
+		toggleMaximized();
 	});
 	tr::lng_close() | rpl::on_next([=](const QString &text) {
 		_close->setAccessibleName(text);
@@ -136,10 +148,8 @@ WindowChrome::WindowChrome(
 	_window->windowActiveValue() | rpl::on_next([=] {
 		refreshButtons();
 	}, lifetime());
-	_window->events() | rpl::filter([](not_null<QEvent*> event) {
-		return event->type() == QEvent::WindowStateChange;
-	}) | rpl::on_next([=] {
-		refreshButtons();
+	_window->events() | rpl::on_next([=](not_null<QEvent*> event) {
+		handleWindowEvent(event);
 	}, lifetime());
 	_window->hitTestRequests() | rpl::filter([=] {
 		return !isHidden();
@@ -148,9 +158,13 @@ WindowChrome::WindowChrome(
 		if (!rect().contains(point)) {
 			return;
 		}
-		request->result = ranges::any_of(buttons, [&](const auto button) {
+		const auto control = ranges::any_of(buttons, [&](const auto button) {
 			return button->geometry().contains(point);
-		}) ? Ui::Platform::HitTestResult::Client
+		});
+		const auto menu = !_menu->isHidden()
+			&& _menu->geometry().contains(point);
+		request->result = (control || menu)
+			? Ui::Platform::HitTestResult::Client
 			: Ui::Platform::HitTestResult::Caption;
 	}, lifetime());
 }
@@ -158,10 +172,14 @@ WindowChrome::WindowChrome(
 void WindowChrome::setCaptionArea(
 		not_null<QWidget*> source,
 		QRect area,
-		Fn<bool()> sourceValid) {
+		Fn<bool()> sourceValid,
+		QRect menuArea,
+		Fn<void()> menuClicked) {
 	const auto sourceChanged = (_captionSource != source.get());
 	_captionSource = source.get();
 	_captionArea = area;
+	_menuArea = menuArea.translated(-area.topLeft());
+	_menuClicked = std::move(menuClicked);
 	_sourceValid = std::move(sourceValid);
 	if (sourceChanged) {
 		observeCaptionSource();
@@ -172,7 +190,11 @@ void WindowChrome::setCaptionArea(
 void WindowChrome::clearCaptionSource() {
 	_captionSource = nullptr;
 	_captionArea = QRect();
+	_menuArea = QRect();
+	_menuClicked = nullptr;
 	_sourceValid = nullptr;
+	++_restoreSerial;
+	_restorePending = false;
 	_sourceLifetime.destroy();
 	refreshCaption();
 }
@@ -256,7 +278,11 @@ void WindowChrome::refreshCaption() {
 		setGeometry(QRect(
 			_captionSource->mapTo(parentWidget(), _captionArea.topLeft()),
 			_captionArea.size()));
+		const auto menuArea = _menuArea.intersected(rect());
+		_menu->setGeometry(menuArea);
+		_menu->setVisible(_menuClicked && !menuArea.isEmpty());
 		refreshButtons();
+		rememberNormalGeometry();
 	}
 	if (shown == isHidden()) {
 		setVisible(shown);
@@ -265,6 +291,70 @@ void WindowChrome::refreshCaption() {
 	if (shown) {
 		raise();
 	}
+}
+
+void WindowChrome::rememberNormalGeometry() {
+	if (!_restorePending
+		&& _lastWindowState == Qt::WindowNoState
+		&& _window->windowState() == Qt::WindowNoState
+		&& captionSourceShown()
+		&& !_window->geometry().isEmpty()) {
+		_normalGeometry = _window->geometry();
+	}
+}
+
+void WindowChrome::handleWindowEvent(not_null<QEvent*> event) {
+	switch (event->type()) {
+	case QEvent::WindowStateChange:
+		handleWindowStateChange();
+		refreshButtons();
+		break;
+	case QEvent::Move:
+	case QEvent::Resize:
+		rememberNormalGeometry();
+		break;
+	default:
+		break;
+	}
+}
+
+void WindowChrome::handleWindowStateChange() {
+	const auto state = _window->windowState();
+	if (state == _lastWindowState) {
+		return;
+	}
+	const auto wasMaximized = bool(_lastWindowState & Qt::WindowMaximized);
+	_lastWindowState = state;
+	const auto serial = ++_restoreSerial;
+	_restorePending = false;
+	if (!wasMaximized
+		|| state != Qt::WindowNoState
+		|| _normalGeometry.isEmpty()
+		|| !captionSourceShown()) {
+		return;
+	}
+	_restorePending = true;
+	InvokeQueued(this, [=] {
+		if (serial != _restoreSerial) {
+			return;
+		}
+		if (_window->windowState() == Qt::WindowNoState
+			&& captionSourceShown()) {
+			_window->setGeometry(QRect(
+				_window->geometry().topLeft(),
+				_normalGeometry.size()));
+		}
+		_restorePending = false;
+		rememberNormalGeometry();
+	});
+}
+
+void WindowChrome::toggleMaximized() {
+	rememberNormalGeometry();
+	const auto state = _window->windowState();
+	_window->setWindowState((state & Qt::WindowMaximized)
+		? state & ~Qt::WindowMaximized
+		: state | Qt::WindowMaximized);
 }
 
 void WindowChrome::refreshButtons() {
@@ -281,14 +371,18 @@ void WindowChrome::refreshButtons() {
 void UpdateWindowChromeCaption(
 		not_null<Window::SessionController*> controller,
 		not_null<QWidget*> source,
-		QRect localCaption) {
+		QRect localCaption,
+		QRect menuArea,
+		Fn<void()> menuClicked) {
 	if (controller->window().sessionController() != controller.get()) {
 		return;
 	}
 	controller->window().widget()->setReferenceCaptionArea(
 		controller,
 		source,
-		localCaption);
+		localCaption,
+		menuArea,
+		std::move(menuClicked));
 }
 
 } // namespace Lunagram

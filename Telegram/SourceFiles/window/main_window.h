@@ -136,7 +136,9 @@ public:
 	void setReferenceCaptionArea(
 		not_null<SessionController*> controller,
 		not_null<QWidget*> source,
-		QRect area);
+		QRect area,
+		QRect menuArea = {},
+		Fn<void()> menuClicked = nullptr);
 
 	void clearWidgets();
 

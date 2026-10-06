@@ -406,7 +406,11 @@ private:
 		Fn<void(Api::SendOptions)> send);
 	bool updateReplaceMediaButton();
 	void updateOuterGeometry(QRect rect);
-	void paintBackground(QPainter &p, QRect full, QRect clip);
+	void paintBackground(
+		not_null<QWidget*> widget,
+		QPainter &p,
+		QRect full,
+		QRect clip);
 
 	[[nodiscard]] auto baseSendButtonType() const;
 	[[nodiscard]] auto computeSendButtonType() const;

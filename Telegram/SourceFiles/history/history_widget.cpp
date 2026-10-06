@@ -210,6 +210,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "support/support_preload.h"
 #include "dialogs/dialogs_key.h"
 #include "calls/calls_instance.h"
+
+#include <QtCore/QMimeData>
+#include <QtGui/QWindow>
+
+#include <array>
+
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h"
 #include "styles/style_window.h"
@@ -217,9 +223,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_info.h"
 #include "styles/style_iv.h"
 #include "styles/style_layers.h"
-
-#include <QtGui/QWindow>
-#include <QtCore/QMimeData>
+#include "styles/style_lunagram_design.h"
 
 namespace {
 
@@ -1287,21 +1291,35 @@ void HistoryWidget::refreshJoinChannelText() {
 
 void HistoryWidget::refreshGiftToChannelShown() {
 	if (!_giftToChannel || !_peer) {
+		if (_giftToChannel && Lunagram::ReferenceDesignEnabled()) {
+			_giftToChannel->hide();
+		}
 		return;
 	}
 	const auto channel = _peer->asChannel();
 	_giftToChannel->setVisible(channel
 		&& channel->isBroadcast()
-		&& channel->stargiftsAvailable());
+		&& channel->stargiftsAvailable()
+		&& (!Lunagram::ReferenceDesignEnabled()
+			|| !_muteUnmute->isHidden()
+			|| !_joinChannel->isHidden()));
+	updateChannelButtonsGeometry();
 }
 
 void HistoryWidget::refreshDirectMessageShown() {
 	if (!_directMessage || !_peer) {
+		if (_directMessage && Lunagram::ReferenceDesignEnabled()) {
+			_directMessage->hide();
+		}
 		return;
 	}
 	const auto channel = _peer->asChannel();
 	const auto monoforum = channel ? channel->broadcastMonoforum() : nullptr;
-	const auto visible = monoforum && !monoforum->monoforumDisabled();
+	const auto visible = monoforum
+		&& !monoforum->monoforumDisabled()
+		&& (!Lunagram::ReferenceDesignEnabled()
+			|| !_muteUnmute->isHidden()
+			|| !_joinChannel->isHidden());
 	_directMessage->setVisible(visible);
 	if (visible) {
 		using Flags = Data::Flags<ChannelDataFlags>;
@@ -1314,6 +1332,7 @@ void HistoryWidget::refreshDirectMessageShown() {
 			}
 		});
 	}
+	updateChannelButtonsGeometry();
 }
 
 void HistoryWidget::refreshTopBarActiveChat() {
@@ -2787,10 +2806,19 @@ void HistoryWidget::setupShortcuts() {
 
 void HistoryWidget::setupGiftToChannelButton() {
 	_giftToChannel = Ui::CreateChild<Ui::IconButton>(
-		_muteUnmute.data(),
+		Lunagram::ReferenceDesignEnabled()
+			? static_cast<QWidget*>(this)
+			: _muteUnmute.data(),
 		st::historyGiftToChannel);
+	if (Lunagram::ReferenceDesignEnabled()) {
+		_giftToChannel->hide();
+	}
 	_giftToChannel->setAccessibleName(tr::lng_gift_channel_title(tr::now));
 	widthValue() | rpl::on_next([=](int width) {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			updateChannelButtonsGeometry();
+			return;
+		}
 		_giftToChannel->moveToRight(
 			0,
 			(_giftToChannel->parentWidget()->height()
@@ -2804,6 +2832,10 @@ void HistoryWidget::setupGiftToChannelButton() {
 		_muteUnmute->shownValue(),
 		_joinChannel->shownValue()
 	) | rpl::on_next([=](bool muteUnmute, bool joinChannel) {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			refreshGiftToChannelShown();
+			return;
+		}
 		const auto newParent = (muteUnmute && !joinChannel)
 			? _muteUnmute.data()
 			: (joinChannel && !muteUnmute)
@@ -2821,10 +2853,19 @@ void HistoryWidget::setupGiftToChannelButton() {
 
 void HistoryWidget::setupDirectMessageButton() {
 	_directMessage = Ui::CreateChild<Ui::IconButton>(
-		_muteUnmute.data(),
+		Lunagram::ReferenceDesignEnabled()
+			? static_cast<QWidget*>(this)
+			: _muteUnmute.data(),
 		st::historyDirectMessage);
-		_directMessage->setAccessibleName(tr::lng_profile_direct_messages(tr::now));
+	if (Lunagram::ReferenceDesignEnabled()) {
+		_directMessage->hide();
+	}
+	_directMessage->setAccessibleName(tr::lng_profile_direct_messages(tr::now));
 	widthValue() | rpl::on_next([=](int width) {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			updateChannelButtonsGeometry();
+			return;
+		}
 		_directMessage->moveToLeft(
 			0,
 			(_directMessage->parentWidget()->height()
@@ -2847,6 +2888,10 @@ void HistoryWidget::setupDirectMessageButton() {
 		_muteUnmute->shownValue(),
 		_joinChannel->shownValue()
 	) | rpl::on_next([=](bool muteUnmute, bool joinChannel) {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			refreshDirectMessageShown();
+			return;
+		}
 		const auto newParent = (muteUnmute && !joinChannel)
 			? _muteUnmute.data()
 			: (joinChannel && !muteUnmute)
@@ -2860,6 +2905,47 @@ void HistoryWidget::setupDirectMessageButton() {
 			refreshDirectMessageShown();
 		}
 	}, _directMessage->lifetime());
+}
+
+void HistoryWidget::updateChannelButtonsGeometry() {
+	if (!Lunagram::ReferenceDesignEnabled()) {
+		return;
+	}
+	const auto row = !_joinChannel->isHidden()
+		? _joinChannel.data()
+		: !_muteUnmute->isHidden()
+		? _muteUnmute.data()
+		: nullptr;
+	if (!row) {
+		return;
+	}
+	const auto top = row->y();
+	const auto height = row->height();
+	if (_directMessage) {
+		_directMessage->moveToLeft(
+			0,
+			top + (height - _directMessage->height()) / 2,
+			width());
+	}
+	if (_giftToChannel) {
+		_giftToChannel->moveToRight(
+			0,
+			top + (height - _giftToChannel->height()) / 2,
+			width());
+	}
+	const auto left = (_directMessage && !_directMessage->isHidden())
+		? (_directMessage->width() + st::lunagramReferencePanelInset)
+		: 0;
+	const auto right = (_giftToChannel && !_giftToChannel->isHidden())
+		? (_giftToChannel->width() + st::lunagramReferencePanelInset)
+		: 0;
+	const auto geometry = myrtlrect(
+		left,
+		top,
+		std::max(width() - left - right, 0),
+		height);
+	_joinChannel->setGeometry(geometry);
+	_muteUnmute->setGeometry(geometry);
 }
 
 void HistoryWidget::pushReplyReturn(not_null<HistoryItem*> item) {
@@ -6954,7 +7040,9 @@ bool HistoryWidget::updateCmdStartShown() {
 			(_botMenu.text.isEmpty()
 				? tr::lng_bot_menu_button()
 				: rpl::single(_botMenu.text)),
-			st::historyBotMenuButton);
+			Lunagram::ReferenceDesignEnabled()
+				? st::lunagramReferenceBotMenuButton
+				: st::historyBotMenuButton);
 		orderWidgets();
 
 		_botMenu.button->setFullRadius(true);
@@ -7330,6 +7418,8 @@ int HistoryWidget::fieldHeight() const {
 	}
 	return (_canSendTexts || _editMsgId)
 		? _field->height()
+		: Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceComposeField.heightMin
 		: (st::historySendSize.height() - 2 * st::historySendPadding);
 }
 
@@ -7524,24 +7614,34 @@ void HistoryWidget::moveFieldControls() {
 // (_attachDocument|_attachPhoto) _field (_ttlInfo) (_scheduled) (_giftToUser) (_silent|_cmdStart|_kbShow) (_toggleSuggestPost) (_kbHide|_tabbedSelectorToggle) _send
 // (_botStart|_unblock|_joinChannel|_muteUnmute|_reportMessages)
 
-	const auto buttonsBottom = Lunagram::ReferenceDesignEnabled()
+	const auto reference = Lunagram::ReferenceDesignEnabled();
+	const auto buttonsCenterTwice = 2 * (bottom - st::historySendPadding)
+		- st::lunagramReferenceComposeField.heightMin;
+	const auto buttonsBottom = reference
 		? (bottom - st::historySendPadding
 			- (st::lunagramReferenceComposeField.heightMin
 				+ _attachToggle->height()) / 2)
 		: (bottom - _attachToggle->height());
+	const auto buttonTop = [&](QWidget *button) {
+		return reference
+			? ((buttonsCenterTwice - button->height()) / 2)
+			: buttonsBottom;
+	};
 	auto left = st::historySendRight;
 	if (_botMenu.button) {
 		const auto skip = st::historyBotMenuSkip;
-		_botMenu.button->moveToLeft(left + skip, buttonsBottom + skip);
+		_botMenu.button->moveToLeft(
+			left + skip,
+			reference ? buttonTop(_botMenu.button) : (buttonsBottom + skip));
 		left += skip + _botMenu.button->width();
 	}
 	if (_replaceMedia) {
-		_replaceMedia->moveToLeft(left, buttonsBottom);
+		_replaceMedia->moveToLeft(left, buttonTop(_replaceMedia));
 	}
-	_attachToggle->moveToLeft(left, buttonsBottom);
+	_attachToggle->moveToLeft(left, buttonTop(_attachToggle));
 	left += _attachToggle->width();
 	if (_sendAs) {
-		_sendAs->moveToLeft(left, buttonsBottom);
+		_sendAs->moveToLeft(left, buttonTop(_sendAs.get()));
 		left += _sendAs->width();
 	}
 	const auto fieldTop = bottom - fieldHeight() - st::historySendPadding;
@@ -7550,37 +7650,45 @@ void HistoryWidget::moveFieldControls() {
 	if (_fieldDisabled) {
 		_fieldDisabled->moveToLeft(
 			left,
-			bottom - fieldHeight() - st::historySendPadding);
+			fieldTop + (reference
+				? ((st::lunagramReferenceComposeField.heightMin
+					- st::historySendSize.height()
+					+ 2 * st::historySendPadding) / 2)
+				: 0));
 	}
 	auto right = st::historySendRight;
-	_send->moveToRight(right, buttonsBottom); right += _send->width();
+	_send->moveToRight(right, buttonTop(_send.get())); right += _send->width();
 	_voiceRecordBar->moveToLeft(0, bottom - _voiceRecordBar->height());
-	_tabbedSelectorToggle->moveToRight(right, buttonsBottom);
-	_botKeyboardHide->moveToRight(right, buttonsBottom);
+	_tabbedSelectorToggle->moveToRight(right, buttonTop(_tabbedSelectorToggle));
+	_botKeyboardHide->moveToRight(right, buttonTop(_botKeyboardHide));
 	right += _botKeyboardHide->width();
-	_botKeyboardShow->moveToRight(right, buttonsBottom);
-	_botCommandStart->moveToRight(right, buttonsBottom);
+	_botKeyboardShow->moveToRight(right, buttonTop(_botKeyboardShow));
+	_botCommandStart->moveToRight(right, buttonTop(_botCommandStart));
 	if (_silent) {
-		_silent->moveToRight(right, buttonsBottom);
+		_silent->moveToRight(right, buttonTop(_silent.get()));
 	}
 	const auto kbShowShown = _history && !_kbShown && _keyboard->hasMarkup();
 	if (kbShowShown || _cmdStartShown || _silent) {
 		right += _botCommandStart->width();
 	}
 	if (_toggleSuggestPost) {
-		_toggleSuggestPost->moveToRight(right, buttonsBottom);
+		_toggleSuggestPost->moveToRight(right, buttonTop(_toggleSuggestPost.get()));
 		right += _toggleSuggestPost->width();
 	}
 	if (_giftToUser) {
-		_giftToUser->moveToRight(right, buttonsBottom);
+		_giftToUser->moveToRight(right, buttonTop(_giftToUser.get()));
 		right += _giftToUser->width();
 	}
 	if (_scheduled) {
-		_scheduled->moveToRight(right, buttonsBottom);
+		_scheduled->moveToRight(right, buttonTop(_scheduled.get()));
 		right += _scheduled->width();
 	}
 	if (_ttlInfo) {
-		_ttlInfo->move(width() - right - _ttlInfo->width(), buttonsBottom);
+		_ttlInfo->move(
+			width() - right - _ttlInfo->width(),
+			reference
+				? ((buttonsCenterTwice - st::historyMessagesTTL.iconButton.height) / 2)
+				: buttonsBottom);
 	}
 	updateAiButtonGeometry();
 	updateSendAsFileGeometry();
@@ -7612,6 +7720,7 @@ void HistoryWidget::moveFieldControls() {
 	_joinChannel->setGeometry(fullWidthButtonRect);
 	_muteUnmute->setGeometry(fullWidthButtonRect);
 	_reportMessages->setGeometry(fullWidthButtonRect);
+	updateChannelButtonsGeometry();
 	if (_sendRestriction) {
 		_sendRestriction->setGeometry(fullWidthButtonRect);
 	}
@@ -7653,7 +7762,11 @@ void HistoryWidget::updateFieldSize() {
 	}
 
 	if (_fieldDisabled) {
-		_fieldDisabled->resize(width(), st::historySendSize.height());
+		_fieldDisabled->resize(
+			Lunagram::ReferenceDesignEnabled() ? fieldWidth : width(),
+			Lunagram::ReferenceDesignEnabled()
+				? (st::historySendSize.height() - 2 * st::historySendPadding)
+				: st::historySendSize.height());
 	}
 	if (_field->width() != fieldWidth) {
 		_field->resize(fieldWidth, _field->height());
@@ -9608,7 +9721,7 @@ void HistoryWidget::checkPinnedBarState() {
 	_pinnedBar = std::make_unique<Ui::PinnedBar>(_topBars.get(), [=] {
 		return controller()->isGifPausedAtLeastFor(
 			Window::GifPauseReason::Any);
-	}, controller()->gifPauseLevelChanged());
+	}, controller()->gifPauseLevelChanged(), controller());
 	auto pinnedRefreshed = Info::Profile::SharedMediaCountValue(
 		_peer,
 		MsgId(0), // topicRootId
@@ -11261,11 +11374,53 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	p.setInactive(
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
 	const auto background = myrtlrect(0, backy, width(), backh);
-	Lunagram::PaintComposerBackground(
-		p,
-		background,
-		&session(),
-		!Lunagram::ReferenceDesignEnabled());
+	if (Lunagram::ReferenceDesignEnabled() && fieldOrDisabledShown()) {
+		auto field = _field->geometry();
+		field.setHeight(fieldHeight());
+		Lunagram::PaintComposerPanel(
+			p,
+			Lunagram::ComposerFieldPanel(field, _send->geometry()),
+			&session(),
+			controller(),
+			this);
+		for (const auto button : std::array<QWidget*, 5>{
+			_botMenu.button.get(),
+			_attachToggle.data(),
+			_replaceMedia.get(),
+			_sendAs.get(),
+			_send.get(),
+		}) {
+			if (button && !button->isHidden()) {
+				Lunagram::PaintComposerPanel(
+					p,
+					Lunagram::ComposerButtonPanel(button->geometry()),
+					&session(),
+					controller(),
+					this);
+			}
+		}
+		if (backy < _field->y() - st::historySendPadding) {
+			const auto inset = st::lunagramReferencePanelInset;
+			Lunagram::PaintComposerPanel(
+				p,
+				QRect(0, backy, width(), st::historyReplyHeight).adjusted(
+					inset,
+					inset,
+					-inset,
+					-inset),
+				&session(),
+				controller(),
+				this);
+		}
+	} else {
+		Lunagram::PaintComposerBackground(
+			p,
+			background,
+			&session(),
+			!Lunagram::ReferenceDesignEnabled(),
+			controller(),
+			this);
+	}
 
 	const auto media = (!_previewDrawPreview && drawMsgText)
 		? drawMsgText->media()
@@ -11559,8 +11714,23 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 					p,
 					button->geometry(),
 					&session(),
-					false);
+					false,
+					controller(),
+					this);
 				break;
+			}
+		}
+		for (const auto button : {
+			_directMessage.data(),
+			_giftToChannel.data(),
+		}) {
+			if (button && !button->isHidden()) {
+				Lunagram::PaintComposerPanel(
+					p,
+					Lunagram::ComposerButtonPanel(button->geometry()),
+					&session(),
+					controller(),
+					this);
 			}
 		}
 	}

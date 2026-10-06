@@ -150,6 +150,8 @@ foreach ($name in @('sizeForGroupingOptimal', 'sizeForGrouping')) {
 Assert-Contract ($nativeSize -match '(?s)CountDesiredMediaSize\(QSize original\).*?DownscaledSize\(\s*style::ConvertScale\(original\),\s*\{ st::maxMediaSize, st::maxMediaSize \}') 'Native unmodified downscale contract changed.'
 
 Assert-Contract ($paintContext -match 'bool backdrop = false;') 'Backdrop paint must be opt-in for every existing context.'
+$diceCaptureSource = Read-Source 'Telegram/SourceFiles/history/view/media/history_view_dice.cpp'
+Assert-Contract ($diceCaptureSource -match '#include "ui/chat/chat_style.h"') 'Dice capture must include the complete ChatPaintContext definition before accessing its fields.'
 $capture = Function-Body $inner 'HistoryInner::paintBackdrop'
 foreach ($contract in @(
     'context.backdrop = true;',

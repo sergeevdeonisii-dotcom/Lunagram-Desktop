@@ -3163,7 +3163,7 @@ void HistoryItem::setRealId(MsgId newId) {
 }
 
 bool HistoryItem::canPin() const {
-	if (!isRegular() || isService()) {
+	if (lunagramRetainedDeleted() || !isRegular() || isService()) {
 		return false;
 	} else if (const auto m = media(); m && m->call()) {
 		return false;
@@ -3185,7 +3185,8 @@ bool HistoryItem::allowsReschedule() const {
 }
 
 bool HistoryItem::allowsForward() const {
-	return !isService()
+	return !lunagramRetainedDeleted()
+		&& !isService()
 		&& (isRegular() || isEphemeral())
 		&& !forbidsForward()
 		&& history()->peer->allowsForwarding()
@@ -3220,7 +3221,8 @@ bool HistoryItem::allowsEditMedia() const {
 }
 
 bool HistoryItem::canBeEdited() const {
-	if ((!isRegular()
+	if (lunagramRetainedDeleted()
+		|| (!isRegular()
 			&& !isScheduled()
 			&& !isBusinessShortcut()
 			&& !isWelcomeTemplate())
@@ -3279,6 +3281,9 @@ bool HistoryItem::allowsMediaDownloadControls() const {
 }
 
 bool HistoryItem::canDelete() const {
+	if (lunagramRetainedDeleted()) {
+		return true;
+	}
 	if (isSponsored()) {
 		return false;
 	} else if (isEphemeral()) {
@@ -3315,6 +3320,9 @@ bool HistoryItem::canDelete() const {
 }
 
 bool HistoryItem::canDeleteForEveryone(TimeId now) const {
+	if (lunagramRetainedDeleted()) {
+		return false;
+	}
 	const auto peer = _history->peer;
 	const auto &config = _history->session().serverConfig();
 	const auto messageToMyself = peer->isSelf();

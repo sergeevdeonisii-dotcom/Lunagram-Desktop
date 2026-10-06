@@ -7,23 +7,29 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/chat/pinned_bar.h"
 
+#include "lunagram/design.h"
+#include "lunagram/lunagram_settings.h"
 #include "ui/chat/message_bar.h"
 #include "ui/effects/spoiler_mess.h"
 #include "ui/widgets/shadow.h"
 #include "ui/widgets/buttons.h"
 #include "ui/wrap/fade_wrap.h"
-#include "styles/style_chat_helpers.h"
-#include "styles/palette.h"
 
 #include <QtGui/QtEvents>
+
+#include "styles/palette.h"
+#include "styles/style_chat_helpers.h"
+#include "styles/style_lunagram_design.h"
 
 namespace Ui {
 
 PinnedBar::PinnedBar(
-	not_null<QWidget*> parent,
-	Fn<bool()> customEmojiPaused,
-	rpl::producer<> customEmojiPausedChanges)
-: _wrap(parent, object_ptr<RpWidget>(parent))
+		not_null<QWidget*> parent,
+		Fn<bool()> customEmojiPaused,
+		rpl::producer<> customEmojiPausedChanges,
+		not_null<Window::SessionController*> controller)
+: _controller(controller)
+, _wrap(parent, object_ptr<RpWidget>(parent))
 , _shadow(std::make_unique<PlainShadow>(_wrap.parentWidget()))
 , _customEmojiPaused(std::move(customEmojiPaused)) {
 	_wrap.hide(anim::type::instant);
@@ -34,14 +40,34 @@ PinnedBar::PinnedBar(
 		_wrap.heightValue(),
 		rpl::mappers::_1 && rpl::mappers::_2 > 0
 	) | rpl::filter([=](bool shown) {
-		return (shown == _shadow->isHidden());
+		return !Lunagram::ReferenceDesignEnabled()
+			&& (shown == _shadow->isHidden());
 	}));
 
 	_wrap.entity()->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
-		QPainter(_wrap.entity()).fillRect(clip, st::historyPinnedBg);
+		if (Lunagram::ReferenceDesignEnabled()) {
+			const auto theme = Lunagram::ReferenceChatTheme(_controller);
+			Lunagram::PaintReferenceBackdrop(
+				_controller,
+				theme,
+				_wrap.entity(),
+				clip);
+			auto p = QPainter(_wrap.entity());
+			const auto inset = st::lunagramReferencePanelInset;
+			p.setClipRect(clip);
+			Lunagram::PaintGlassPanel(
+				_controller,
+				theme,
+				_wrap.entity(),
+				p,
+				_wrap.entity()->rect().adjusted(inset, inset, -inset, -inset),
+				st::historyPinnedBg->c);
+		} else {
+			QPainter(_wrap.entity()).fillRect(clip, st::historyPinnedBg);
+		}
 	}, lifetime());
-	_wrap.setAttribute(Qt::WA_OpaquePaintEvent);
+	_wrap.setAttribute(Qt::WA_OpaquePaintEvent, !Lunagram::ReferenceDesignEnabled());
 
 	if (customEmojiPausedChanges) {
 		std::move(

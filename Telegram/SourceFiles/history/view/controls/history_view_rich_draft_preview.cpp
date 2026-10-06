@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/markdown/iv_markdown_article_layout_blocks.h"
 #include "iv/markdown/iv_markdown_prepare.h"
 #include "iv/iv_rich_page.h"
+#include "lunagram/lunagram_settings.h"
 #include "main/main_session.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/chat_theme.h"
@@ -173,7 +174,9 @@ void RichDraftPreview::paint(QRect clip) {
 	Painter p(this);
 	const auto paused = _paused && _paused();
 	p.setInactive(paused);
-	p.fillRect(rect(), st::historyComposeAreaBg);
+	if (!Lunagram::ReferenceDesignEnabled()) {
+		p.fillRect(rect(), st::historyComposeAreaBg);
+	}
 
 	if (_style && (_paletteVersion != _style->paletteVersion())) {
 		_paletteVersion = _style->paletteVersion();

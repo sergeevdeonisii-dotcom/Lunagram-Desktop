@@ -723,12 +723,15 @@ void Document::draw(
 		LayoutMode mode,
 		Ui::BubbleRounding outsideRounding) const {
 	if (width < st::msgPadding.left() + st::msgPadding.right() + 1) return;
+	if (context.backdrop && !_dataMedia) {
+		return;
+	}
 
 	ensureDataMediaCreated();
 
 	const auto cornerDownload = downloadInCorner();
 
-	if (!_dataMedia->canBePlayed()) {
+	if (!context.backdrop && !_dataMedia->canBePlayed()) {
 		_dataMedia->automaticLoad(_realParent->fullId(), _realParent);
 	}
 	bool loaded = dataLoaded(), displayLoading = _data->displayLoading();
@@ -737,13 +740,13 @@ void Document::draw(
 
 	int captionw = width - st::msgPadding.left() - st::msgPadding.right();
 
-	if (displayLoading) {
+	if (!context.backdrop && displayLoading) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(dataProgress());
 		}
 	}
-	const auto showPause = updateStatusText();
+	const auto showPause = !context.backdrop && updateStatusText();
 	const auto radial = isRadialAnimation();
 
 	const auto topMinus = isBubbleTop() ? 0 : st::msgFileTopMinus;
@@ -763,7 +766,16 @@ void Document::draw(
 	const auto radialOpacity = radial ? _animation->radial.opacity() : 1.;
 	if (thumbed) {
 		const auto rounding = thumbRounding(mode, outsideRounding);
-		validateThumbnail(thumbed, st.thumbSize, rounding);
+		if (!context.backdrop
+			|| _dataMedia->goodThumbnailCached()
+			|| _dataMedia->thumbnail()
+			|| _dataMedia->thumbnailInline()) {
+			validateThumbnail(
+				thumbed,
+				st.thumbSize,
+				rounding,
+				context.backdrop);
+		}
 		p.drawImage(rthumb, thumbed->thumbnail);
 		if (context.selected()) {
 			FillThumbnailOverlay(p, rthumb, rounding, context);
@@ -987,7 +999,9 @@ void Document::draw(
 			const auto voiceData = _data->isVideoMessage()
 				? _data->round()
 				: _data->voice();
-			if (voiceData && voiceData->waveform.isEmpty()) {
+			if (!context.backdrop
+				&& voiceData
+				&& voiceData->waveform.isEmpty()) {
 				if (loaded) {
 					Local::countVoiceWaveform(_dataMedia.get());
 				}
@@ -1021,12 +1035,14 @@ void Document::draw(
 			namewidth -= st::historyTranscribeSkip + size.width();
 			const auto x = nameleft + namewidth + st::historyTranscribeSkip;
 			const auto y = st.padding.top() - topMinus;
-			voice->transcribe->paint(p, x, y, context);
+			if (!context.backdrop) {
+				voice->transcribe->paint(p, x, y, context);
+			}
 		}
 		p.save();
 		p.translate(nameleft, st.padding.top() - topMinus);
 
-		if (_transcribedRound) {
+		if (!context.backdrop && _transcribedRound) {
 			FillWaveform(_data->round());
 		}
 		const auto inTTLViewer = _parent->delegate()->elementContext()
@@ -1129,14 +1145,17 @@ Ui::BubbleRounding Document::thumbRounding(
 void Document::validateThumbnail(
 		not_null<const HistoryDocumentThumbed*> thumbed,
 		int size,
-		Ui::BubbleRounding rounding) const {
+		Ui::BubbleRounding rounding,
+		bool backdrop) const {
 	const auto good = _data->isSvgImage()
-		? _dataMedia->goodThumbnail()
+		? (backdrop
+			? _dataMedia->goodThumbnailCached()
+			: _dataMedia->goodThumbnail())
 		: nullptr;
 	const auto normal = good ? good : _dataMedia->thumbnail();
 	const auto blurred = _dataMedia->thumbnailInline();
 	if (!normal && !blurred) {
-		if (_data->isSvgImage()) {
+		if (!backdrop && _data->isSvgImage()) {
 			_dataMedia->goodThumbnailWanted();
 			Data::DocumentMedia::CheckGoodThumbnail(_data);
 		}
@@ -1850,7 +1869,7 @@ void Document::paintPlaybackBlobs(
 		Painter &p,
 		const PaintContext &context,
 		QRect inner) const {
-	if (anim::Disabled() || _drawTtl) {
+	if (context.backdrop || anim::Disabled() || _drawTtl) {
 		return;
 	}
 	const auto voice = Get<HistoryDocumentVoice>();

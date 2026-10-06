@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_element.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
+#include "ui/chat/chat_style.h"
 
 namespace HistoryView {
 namespace {
@@ -136,6 +137,14 @@ bool Dice::updateItemData() {
 }
 
 void Dice::draw(Painter &p, const PaintContext &context, const QRect &r) {
+	if (context.backdrop) {
+		if (_drawingEnd && _end) {
+			_end->draw(p, context, r);
+		} else if (_start) {
+			_start->draw(p, context, r);
+		}
+		return;
+	}
 	if (!_start) {
 		if (const auto document = Lookup(_parent, _dice->emoji(), 0)) {
 			const auto skipPremiumEffect = false;

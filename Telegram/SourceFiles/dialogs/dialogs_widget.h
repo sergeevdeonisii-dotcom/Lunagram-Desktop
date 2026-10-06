@@ -19,6 +19,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class ChannelData;
 
+namespace style {
+struct InputField;
+} // namespace style
+
 namespace MTP {
 class Error;
 } // namespace MTP
@@ -33,6 +37,10 @@ struct ReactionId;
 namespace Main {
 class Session;
 } // namespace Main
+
+namespace Lunagram {
+class NavigationBar;
+} // namespace Lunagram
 
 namespace HistoryView {
 class TopBarWidget;
@@ -201,6 +209,12 @@ private:
 	void escape();
 	void submit();
 	void cancelSearchRequest();
+	void showChatsFromNavigation();
+	void paintReferenceSearchHint();
+	void updateReferenceSearchHint();
+	[[nodiscard]] bool referenceHeaderShown() const;
+	[[nodiscard]] QRect referenceTitleRect() const;
+	[[nodiscard]] bool referenceStoriesButtonShown() const;
 	[[nodiscard]] PeerData *searchInPeer() const;
 	[[nodiscard]] Data::ForumTopic *searchInTopic() const;
 	[[nodiscard]] PeerData *searchFromPeer() const;
@@ -338,8 +352,12 @@ private:
 		object_ptr<Ui::IconButton> toggle;
 		object_ptr<Ui::AbstractButton> under;
 	} _mainMenu;
+	object_ptr<Ui::IconButton> _referenceCompose = { nullptr };
+	object_ptr<Ui::IconButton> _referenceStories = { nullptr };
 	object_ptr<Ui::IconButton> _searchForNarrowLayout;
+	std::unique_ptr<style::InputField> _searchStyle;
 	object_ptr<Ui::InputField> _search;
+	base::unique_qptr<Ui::RpWidget> _referenceSearchHint;
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _chooseFromUser;
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _jumpToDate;
 	object_ptr<Ui::CrossButton> _cancelSearch;
@@ -379,6 +397,7 @@ private:
 	object_ptr<BottomButton> _updateTelegram = { nullptr };
 	object_ptr<BottomButton> _loadMoreChats = { nullptr };
 	std::unique_ptr<Ui::DownloadBar> _downloadBar;
+	base::unique_qptr<Lunagram::NavigationBar> _navigation;
 	std::unique_ptr<Window::ConnectionState> _connecting;
 
 	Ui::Animations::Simple _scrollToAnimation;

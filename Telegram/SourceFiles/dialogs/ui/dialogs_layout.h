@@ -116,6 +116,13 @@ void PaintCollapsedRow(
 	int unread,
 	const PaintContext &context);
 
+void PaintRowBackground(
+	Painter &p,
+	const BasicRow &row,
+	QRect geometry,
+	const PaintContext &context,
+	bool paintRipple = true);
+
 int PaintRightButton(QPainter &p, const PaintContext &context);
 
 } // namespace Dialogs::Ui

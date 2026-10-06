@@ -1498,8 +1498,9 @@ void Poll::Header::draw(
 					target,
 					st::roundRadiusLarge,
 					st::roundRadiusLarge);
-				const auto image
-					= _attachedMedia->thumbnail->image(
+				const auto image = context.backdrop
+					? QImage()
+					: _attachedMedia->thumbnail->image(
 						std::max(target.width(), target.height()));
 				if (!image.isNull()) {
 					const auto source = QRectF(
@@ -1531,7 +1532,9 @@ void Poll::Header::draw(
 					p.restore();
 				}
 			} else {
-				validateTopMediaCache(target.size());
+				if (!context.backdrop) {
+					validateTopMediaCache(target.size());
+				}
 				if (!_attachedMediaCache.isNull()) {
 					p.drawImage(target.topLeft(),
 						_attachedMediaCache);
@@ -1931,12 +1934,14 @@ void Poll::Options::draw(
 		int innerWidth,
 		int outerWidth,
 		const PaintContext &context) const {
-	checkSendingAnimation();
+	if (!context.backdrop) {
+		checkSendingAnimation();
+	}
 
 	const auto progress = _answersAnimation
 		? _answersAnimation->progress.value(1.)
 		: 1.;
-	if (progress == 1.) {
+	if (!context.backdrop && progress == 1.) {
 		resetAnswersAnimation();
 	}
 
@@ -1949,7 +1954,7 @@ void Poll::Options::draw(
 		const auto animation = _answersAnimation
 			? &_answersAnimation->data[index]
 			: nullptr;
-		if (animation) {
+		if (!context.backdrop && animation) {
 			animation->percent.update(progress, anim::linear);
 			animation->filling.update(
 				progress,
@@ -3448,9 +3453,14 @@ void Poll::Options::updateAnswerVotes() {
 
 void Poll::draw(Painter &p, const PaintContext &context) const {
 	if (width() < st::msgPadding.left() + st::msgPadding.right() + 1) return;
+	if (context.backdrop
+		&& (_headerPart->_attachedMediaAttach
+			|| (_headerPart->_solutionShown && _headerPart->_solutionAttach))) {
+		return;
+	}
 	auto paintw = width();
 
-	if (_poll->checkResultsReload(context.now)) {
+	if (!context.backdrop && _poll->checkResultsReload(context.now)) {
 		history()->session().api().polls().reloadResults(_parent->data());
 	}
 
@@ -3510,10 +3520,14 @@ void Poll::Header::paintRecentVoters(
 
 	auto created = false;
 	for (const auto &recent : ranges::views::reverse(_recentVoters)) {
-		const auto was = !recent.userpic.null();
-		recent.peer->paintUserpic(p, recent.userpic, x, y, size);
-		if (!was && !recent.userpic.null()) {
-			created = true;
+		if (context.backdrop) {
+			p.drawImage(QRect(x, y, size, size), recent.userpic.cached);
+		} else {
+			const auto was = !recent.userpic.null();
+			recent.peer->paintUserpic(p, recent.userpic, x, y, size);
+			if (!was && !recent.userpic.null()) {
+				created = true;
+			}
 		}
 		const auto paintContent = [&](QPainter &p) {
 			p.setPen(pen);
@@ -3763,7 +3777,7 @@ void Poll::Options::paintAnswer(
 		if (answer.votesCountString.isEmpty()) {
 			return;
 		}
-		if (!answer.recentVoters.empty()) {
+		if (!context.backdrop && !answer.recentVoters.empty()) {
 			if (NeedRegenerateUserpics(
 					answer.recentVotersImage,
 					answer.recentVoters)) {
@@ -3917,7 +3931,9 @@ void Poll::Options::paintAnswer(
 					+ (target.height() - linkIcon.height()) / 2;
 				linkIcon.paint(p, iconX, iconY, outerWidth, cache->icon);
 			} else {
-				const auto image = answer.thumbnail->image(media);
+				const auto image = context.backdrop
+					? QImage()
+					: answer.thumbnail->image(media);
 				if (!image.isNull()) {
 					const auto source = QRectF(
 						QPointF(),

@@ -38,6 +38,10 @@ namespace Main {
 class Session;
 } // namespace Main
 
+namespace Lunagram {
+class MessageHistory;
+} // namespace Lunagram
+
 namespace Ui {
 class BoxContent;
 } // namespace Ui
@@ -211,6 +215,7 @@ public:
 	[[nodiscard]] Histories &histories() const {
 		return *_histories;
 	}
+	[[nodiscard]] Lunagram::MessageHistory &lunagramHistory();
 	[[nodiscard]] Stickers &stickers() const {
 		return *_stickers;
 	}
@@ -1450,6 +1455,7 @@ private:
 	MsgId _nonHistoryEntryId = WelcomeMaxMsgId;
 
 	std::unique_ptr<StarsRatingPending> _pendingStarsRating;
+	std::unique_ptr<Lunagram::MessageHistory> _lunagramHistory;
 
 	base::flat_map<
 		not_null<PeerData*>,

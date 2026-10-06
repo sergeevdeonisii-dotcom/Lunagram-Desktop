@@ -63,7 +63,6 @@ endif()
 set_target_properties(Telegram PROPERTIES AUTOMOC ON)
 
 if (WIN32)
-    set_target_properties(Telegram PROPERTIES OUTPUT_NAME Lunagram)
     target_link_libraries(Telegram PRIVATE Crypt32)
 endif()
 
@@ -113,6 +112,31 @@ target_precompile_headers(Telegram PRIVATE $<$<COMPILE_LANGUAGE:CXX,OBJCXX>:${sr
 nice_target_sources(Telegram ${src_loc}
 PRIVATE
     ${style_files}
+
+    lunagram/chat_vault.cpp
+    lunagram/chat_vault.h
+    lunagram/composer.cpp
+    lunagram/composer.h
+    lunagram/design.cpp
+    lunagram/design.h
+    lunagram/formatting.cpp
+    lunagram/formatting.h
+    lunagram/gifts_profile.cpp
+    lunagram/gifts_profile.h
+    lunagram/local_tools.cpp
+    lunagram/local_tools.h
+    lunagram/lunagram_settings.cpp
+    lunagram/lunagram_settings.h
+    lunagram/navigation.cpp
+    lunagram/navigation.h
+    lunagram/message_history.cpp
+    lunagram/message_history.h
+    lunagram/private_codec.cpp
+    lunagram/private_codec.h
+    lunagram/secure_storage.cpp
+    lunagram/secure_storage.h
+    lunagram/window_chrome.cpp
+    lunagram/window_chrome.h
 
     api/api_attached_stickers.cpp
     api/api_attached_stickers.h
@@ -1844,6 +1868,8 @@ PRIVATE
     settings/sections/settings_advanced.h
     settings/sections/settings_chat.cpp
     settings/sections/settings_chat.h
+    settings/sections/settings_lunagram.cpp
+    settings/sections/settings_lunagram.h
     settings/sections/settings_blocked_peers.cpp
     settings/sections/settings_blocked_peers.h
     settings/sections/settings_business.cpp
@@ -2399,6 +2425,10 @@ else()
     endif()
     set(bundle_entitlements "Telegram.entitlements")
     set(output_name "Telegram")
+endif()
+
+if (WIN32)
+    set(output_name "Lunagram")
 endif()
 
 if (CMAKE_GENERATOR STREQUAL Xcode)

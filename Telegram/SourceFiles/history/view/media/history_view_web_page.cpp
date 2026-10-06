@@ -974,6 +974,13 @@ void WebPage::draw(Painter &p, const PaintContext &context) const {
 	if (width() < rect::m::sum::h(st::msgPadding) + 1) {
 		return;
 	}
+	if (context.backdrop
+		&& ((asArticle() && !_photoMedia)
+			|| _hasLogEntryPreview
+			|| _data->uniqueGift
+			|| _data->auction)) {
+		return;
+	}
 	const auto st = context.st;
 	const auto sti = context.imageStyle();
 	const auto stm = context.messageStyle();
@@ -1023,7 +1030,7 @@ void WebPage::draw(Painter &p, const PaintContext &context) const {
 		: (sponsored && sponsored->backgroundEmojiId)
 		? sponsored->backgroundEmojiId
 		: view->contentBackgroundEmojiId();
-	const auto backgroundEmojiData = backgroundEmojiId
+	const auto backgroundEmojiData = !context.backdrop && backgroundEmojiId
 		? st->backgroundEmojiData(backgroundEmojiId, colorCollectible).get()
 		: nullptr;
 	const auto backgroundEmojiCache = !backgroundEmojiData

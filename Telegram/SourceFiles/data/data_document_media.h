@@ -53,6 +53,7 @@ public:
 
 	void goodThumbnailWanted();
 	[[nodiscard]] Image *goodThumbnail() const;
+	[[nodiscard]] Image *goodThumbnailCached() const;
 	void setGoodThumbnail(QImage thumbnail);
 
 	[[nodiscard]] Image *thumbnailInline() const;

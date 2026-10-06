@@ -85,6 +85,9 @@ dialogsRipple: RippleAnimation(defaultRippleAnimation) {
 
 dialogsTextFont: normalFont;
 dialogsTextStyle: defaultTextStyle;
+dialogsReferenceTextStyle: TextStyle(dialogsTextStyle) {
+	lineHeight: 16px;
+}
 dialogsDateFont: font(13px);
 dialogsDateSkip: 5px;
 
@@ -100,6 +103,53 @@ defaultDialogRow: DialogRow {
 	nameTop: 10px;
 	textLeft: 68px;
 	textTop: 34px;
+}
+dialogsReferenceRowHeight: 64px;
+referenceDialogRow: DialogRow(defaultDialogRow) {
+	height: dialogsReferenceRowHeight;
+	photoSize: 48px;
+	nameTop: 9px;
+	textTop: 28px;
+}
+dialogsReferencePreviewLines: 2;
+dialogsReferencePreviewBottom: 0px;
+dialogsReferenceRowInset: 4px;
+dialogsReferenceRowRadius: 12px;
+dialogsReferenceSeparatorOpacity: 0.06;
+dialogsReferenceNavigationMinimumWidth: 160px;
+dialogsReferenceCaptionTitleSide: 76px;
+dialogsReferenceCaptionTitleTop: 7px;
+dialogsReferenceSearchSide: 8px;
+dialogsReferenceStoriesSkip: 4px;
+dialogsReferenceSearchControlsHeight: 50px;
+dialogsReferenceSearchIconSize: 14px;
+dialogsReferenceSearchIconSkip: 5px;
+dialogsReferenceSearchIcon: icon {{ "menu/search", placeholderFg }};
+dialogsReferenceArchiveHeight: 30px;
+dialogsReferenceArchiveInset: 8px;
+dialogsReferenceArchiveRadius: 8px;
+dialogsReferenceArchiveIconSize: 14px;
+dialogsReferenceArchiveIconSkip: 5px;
+dialogsReferenceArchiveIcon: icon {{ "menu/archive", dialogsArchiveFg }};
+lunagramReferenceNewChat: IconButton {
+	width: 30px;
+	height: 30px;
+	icon: icon {{ "lunagram/reference_compose", activeButtonBg }};
+	iconOver: icon {{ "lunagram/reference_compose", activeButtonBgOver }};
+	iconPosition: point(3px, 3px);
+	rippleAreaPosition: point(0px, 0px);
+	rippleAreaSize: 30px;
+	ripple: defaultRippleAnimationBgOver;
+}
+dialogsReferenceStoriesButton: IconButton {
+	width: 28px;
+	height: 28px;
+	icon: icon {{ "menu/stories_saved_section", dialogsMenuIconFg }};
+	iconOver: icon {{ "menu/stories_saved_section", dialogsMenuIconFgOver }};
+	iconPosition: point(2px, 2px);
+	rippleAreaPosition: point(0px, 0px);
+	rippleAreaSize: 28px;
+	ripple: defaultRippleAnimationBgOver;
 }
 communityRequestableListItem: PeerListItem(defaultPeerListItem) {
 	height: dialogsRowHeight;            // == st::defaultDialogRow.height (62px)
@@ -126,6 +176,21 @@ forumDialogRow: DialogRow(defaultDialogRow) {
 taggedForumDialogRow: DialogRow(forumDialogRow) {
 	height: 96px;
 	tagTop: 77px;
+}
+referenceTaggedDialogRow: DialogRow(referenceDialogRow) {
+	height: 74px;
+	tagTop: 54px;
+}
+referenceForumDialogRow: DialogRow(referenceDialogRow) {
+	height: 82px;
+	textTop: 32px;
+	topicsSkip: 8px;
+	topicsSkipBig: 14px;
+	topicsHeight: 21px;
+}
+referenceTaggedForumDialogRow: DialogRow(referenceForumDialogRow) {
+	height: 98px;
+	tagTop: 79px;
 }
 communityInfoDialogRow: DialogRow(defaultDialogRow) {
 	padding: margins(22px, 8px, 18px, 8px);
@@ -333,6 +398,11 @@ dialogsFilter: InputField(defaultInputField) {
 	style: defaultTextStyle;
 
 	heightMin: 35px;
+}
+dialogsReferenceFilter: InputField(dialogsFilter) {
+	borderRadius: 12px;
+	textMargins: margins(12px, 5px, 30px, 4px);
+	heightMin: 28px;
 }
 dialogsCancelSearchInPeer: IconButton(dialogsMenuToggle) {
 	icon: icon {{ "dialogs/dialogs_cancel_search", dialogsMenuIconFg }};
@@ -634,6 +704,9 @@ forumTopicRow: DialogRow(defaultDialogRow) {
 	textLeft: 39px;
 	textTop: 29px;
 	unreadMarkDiameter: 8px;
+}
+referenceForumTopicRow: DialogRow(forumTopicRow) {
+	height: dialogsReferenceRowHeight;
 }
 forumTopicIconPosition: point(2px, 0px);
 editTopicTitleMargin: margins(70px, 2px, 22px, 18px);

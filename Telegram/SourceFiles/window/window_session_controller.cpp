@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/stories/info_stories_widget.h"
 #include "info/info_memento.h"
 #include "info/info_controller.h"
+#include "info/info_content_widget.h"
 #include "inline_bots/bot_attach_web_view.h"
 #include "history/history.h"
 #include "history/history_item.h"
@@ -105,6 +106,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
 #include "apiwrap.h"
 #include "api/api_chat_invite.h"
 #include "api/api_global_privacy.h"
@@ -1236,6 +1238,10 @@ void SessionNavigation::showRepliesForMessage(
 		MsgId rootId,
 		MsgId commentId,
 		const SectionShow &params) {
+	if (Lunagram::IsChatLocked(_session, history->peer->id)) {
+		Lunagram::ShowVaultBox(parentController());
+		return;
+	}
 	if (const auto topic = history->peer->forumTopicFor(rootId)) {
 		auto replies = topic->replies();
 		if (replies->unreadCountKnown()) {
@@ -1391,6 +1397,10 @@ void SessionNavigation::showThread(
 void SessionNavigation::showPeerInfo(
 		not_null<PeerData*> peer,
 		const SectionShow &params) {
+	if (Lunagram::IsChatLocked(_session, peer->id)) {
+		Lunagram::ShowVaultBox(parentController());
+		return;
+	}
 	//if (Adaptive::ThreeColumn()
 	//	&& !Core::App().settings().thirdSectionInfoEnabled()) {
 	//	Core::App().settings().setThirdSectionInfoEnabled(true);
@@ -1509,6 +1519,12 @@ void SessionNavigation::searchMessages(
 		const QString &query,
 		Dialogs::Key inChat,
 		PeerData *searchFrom) {
+	const auto peer = inChat.peer();
+	if ((peer && Lunagram::IsChatLocked(_session, peer->id))
+		|| (searchFrom && Lunagram::IsChatLocked(_session, searchFrom->id))) {
+		Lunagram::ShowVaultBox(parentController());
+		return;
+	}
 	parentController()->content()->searchMessages(query, inChat, searchFrom);
 }
 
@@ -1925,6 +1941,21 @@ void SessionController::init() {
 }
 
 void SessionController::setupScreenshotProtection() {
+	Core::App().screenshotProtection().addContentReason(
+		Lunagram::VaultProtectionValue(&session()),
+		lifetime());
+	Lunagram::VaultChanges(&session()) | rpl::on_next([=] {
+		if (Lunagram::VaultRestricted(&session())) {
+			lockLunagramViews();
+		} else if (!_hasDialogs) {
+			content()->show();
+			showByInitialId(SectionShow(
+				SectionShow::Way::ClearStack,
+				anim::type::instant,
+				anim::activation::background));
+		}
+		widget()->updateTitle();
+	}, lifetime());
 	Core::App().screenshotProtection().addAmbientReason(activeChatValue(
 	) | rpl::map([](Dialogs::Key key) {
 		const auto peer = key.peer();
@@ -1933,6 +1964,32 @@ void SessionController::setupScreenshotProtection() {
 				| rpl::map(!rpl::mappers::_1))
 			: (rpl::single(false) | rpl::type_erased);
 	}) | rpl::flatten_latest(), lifetime());
+}
+
+void SessionController::lockLunagramViews() {
+	_chatSwitchProcess = nullptr;
+	_chatPreviewManager->clear();
+	_pendingOpenDocumentId = 0;
+	_pendingOpenPhoto = {};
+	hideSpecialLayer(anim::type::instant);
+	hideLayer(anim::type::instant);
+	_shownForumLifetime.destroy();
+	_shownForum = nullptr;
+	_openedFolder = nullptr;
+	_openedCommunityLifetime.destroy();
+	_openedCommunity = nullptr;
+	content()->clearLunagramViewCaches();
+	if (!_hasDialogs) {
+		content()->hide();
+		widget()->updateTitle();
+		widget()->repaint();
+		return;
+	}
+	clearSectionStack(SectionShow(
+		SectionShow::Way::ClearStack,
+		anim::type::instant,
+		anim::activation::background));
+	widget()->repaint();
 }
 
 void SessionController::setupShortcuts() {
@@ -2125,6 +2182,10 @@ bool SessionController::openCommunityInDifferentWindow(
 }
 
 void SessionController::openCommunity(not_null<Data::CommunityInfo*> info) {
+	if (Lunagram::VaultRestricted(&session())) {
+		Lunagram::ShowVaultBox(this);
+		return;
+	}
 	if (openCommunityInDifferentWindow(info)) {
 		return;
 	} else if (_openedCommunity.current() != info) {
@@ -2212,6 +2273,10 @@ void SessionController::showForum(
 		not_null<Data::Forum*> forum,
 		const SectionShow &params,
 		MsgId showAtMsgId) {
+	if (Lunagram::IsChatLocked(&session(), forum->peer()->id)) {
+		Lunagram::ShowVaultBox(this);
+		return;
+	}
 	const auto forced = params.forceTopicsList;
 	if (showForumInDifferentWindow(forum, params, showAtMsgId)) {
 		return;
@@ -3148,6 +3213,10 @@ void SessionController::showPeerHistory(
 		PeerId peerId,
 		const SectionShow &params,
 		MsgId msgId) {
+	if (peerId && Lunagram::IsChatLocked(&session(), peerId)) {
+		Lunagram::ShowVaultBox(this);
+		return;
+	}
 	if (const auto peer = session().data().peerLoaded(peerId)) {
 		if (const auto channel = peer->asChannel()) {
 			if (channel->isCommunity()) {
@@ -3166,6 +3235,12 @@ void SessionController::showMessage(
 		&item->history()->session().account(),
 		item->history()->peer,
 		[&](not_null<SessionController*> controller) {
+			if (Lunagram::IsChatLocked(
+					&controller->session(),
+					item->history()->peer->id)) {
+				Lunagram::ShowVaultBox(controller);
+				return;
+			}
 			if (item->isScheduled()) {
 				controller->showSection(
 					std::make_shared<HistoryView::ScheduledMemento>(
@@ -3216,6 +3291,10 @@ void SessionController::cancelUploadLayer(not_null<HistoryItem*> item) {
 void SessionController::showSection(
 		std::shared_ptr<SectionMemento> memento,
 		const SectionShow &params) {
+	if (!Lunagram::AllowVaultSection(&session(), memento.get())) {
+		Lunagram::ShowVaultBox(this);
+		return;
+	}
 	if (!params.thirdColumn
 		&& widget()->showSectionInExistingLayer(memento.get(), params)) {
 		return;
@@ -3409,6 +3488,10 @@ void SessionController::openPhoto(
 		MessageContext message,
 		const Data::StoriesContext *stories) {
 	const auto item = session().data().message(message.id);
+	if (Lunagram::IsChatLocked(&session(), message.id.peer)) {
+		Lunagram::ShowVaultBox(this);
+		return;
+	}
 	if (openSharedStory(item) || openFakeItemStory(message.id, stories)) {
 		return;
 	}
@@ -3430,6 +3513,10 @@ void SessionController::openPhoto(
 void SessionController::openPhoto(
 		not_null<PhotoData*> photo,
 		not_null<PeerData*> peer) {
+	if (Lunagram::IsChatLocked(&session(), peer->id)) {
+		Lunagram::ShowVaultBox(this);
+		return;
+	}
 	const auto origin = peer->isUser()
 		? Data::FileOrigin(Data::FileOriginUserPhoto(
 			peerToUser(peer->id),
@@ -3448,6 +3535,10 @@ void SessionController::openDocument(
 		const Data::StoriesContext *stories,
 		std::optional<TimeId> videoTimestampOverride) {
 	const auto item = session().data().message(message.id);
+	if (Lunagram::IsChatLocked(&session(), message.id.peer)) {
+		Lunagram::ShowVaultBox(this);
+		return;
+	}
 	if (openSharedStory(item) || openFakeItemStory(message.id, stories)) {
 		return;
 	} else if (showInMediaView) {
@@ -3912,6 +4003,10 @@ void SessionController::openPeerStories(
 		std::optional<Data::StorySourcesList> list,
 		bool onlyLive,
 		bool afterReload) {
+	if (Lunagram::VaultRestricted(&session())) {
+		Lunagram::ShowVaultBox(this);
+		return;
+	}
 	using namespace Media::View;
 	using namespace Data;
 
@@ -3979,6 +4074,11 @@ bool SessionController::showChatPreview(
 		Fn<void(bool shown)> callback,
 		QPointer<QWidget> parentOverride,
 		std::optional<QPoint> positionOverride) {
+	if (const auto peer = row.key.peer()) {
+		if (Lunagram::IsChatLocked(&session(), peer->id)) {
+			return false;
+		}
+	}
 	return _chatPreviewManager->show(
 		std::move(row),
 		std::move(callback),
@@ -3991,6 +4091,11 @@ bool SessionController::scheduleChatPreview(
 		Fn<void(bool shown)> callback,
 	QPointer<QWidget> parentOverride,
 	std::optional<QPoint> positionOverride) {
+	if (const auto peer = row.key.peer()) {
+		if (Lunagram::IsChatLocked(&session(), peer->id)) {
+			return false;
+		}
+	}
 	return _chatPreviewManager->schedule(
 		std::move(row),
 		std::move(callback),

@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/event_filter.h"
 #include "lang/lang_keys.h"
+#include "lunagram/design.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/chat/chat_style.h"
 #include "ui/effects/ripple_animation.h"
@@ -313,7 +314,10 @@ void Selector::validateCache(Entry &row) {
 	}
 	row.paletteVersion = version;
 	row.cache.fill(Qt::transparent);
-	auto owned = style::owned_font(row.id, 0, st::boxFontSize);
+	auto owned = style::owned_font(
+		Lunagram::ReferenceFontFamily(row.id),
+		0,
+		st::boxFontSize);
 	const auto font = owned.font();
 	auto p = QPainter(&row.cache);
 	p.setFont(font);
@@ -569,7 +573,7 @@ std::vector<Selector::Entry> Selector::FullList(const QString &now) {
 
 [[nodiscard]] PreviewRequest PrepareRequest(const QString &family) {
 	return {
-		.family = family,
+		.family = Lunagram::ReferenceFontFamily(family),
 		.msgBg = st::msgInBg->c,
 		.msgShadow = st::msgInShadow->c,
 		.replyBar = st::msgInReplyBarColor->c,

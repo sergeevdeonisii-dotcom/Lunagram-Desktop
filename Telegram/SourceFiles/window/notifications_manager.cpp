@@ -20,6 +20,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_helpers.h"
 #include "history/view/history_view_chat_section.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
+#include "lunagram/local_tools.h"
 #include "data/notify/data_notify_settings.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "data/data_document_media.h"
@@ -316,6 +318,7 @@ System::SkipState System::skipNotification(
 	const auto messageType = (type == Data::ItemNotificationType::Message);
 	const auto thread = item->maybeNotificationThread();
 	if (!thread
+		|| Lunagram::ShouldHideNotification(item)
 		|| !thread->currentNotification()
 		|| (messageType && item->skipNotification())
 		|| (type == Data::ItemNotificationType::Reaction
@@ -331,6 +334,9 @@ System::SkipState System::computeSkipState(
 		Data::ItemNotification notification) const {
 	const auto type = notification.type;
 	const auto item = notification.item;
+	if (Lunagram::ShouldHideNotification(item)) {
+		return { SkipState::Skip, true };
+	}
 	const auto thread = item->notificationThread();
 	const auto notifySettings = &thread->owner().notifySettings();
 	const auto messageType = (type == Data::ItemNotificationType::Message);
@@ -595,6 +601,13 @@ void System::clearFromHistory(not_null<History*> history) {
 }
 
 void System::clearFromSession(not_null<Main::Session*> session) {
+	if (_lastHistorySessionId == session->uniqueId()) {
+		_waitForAllGroupedTimer.cancel();
+		_lastForwardedCount = 0;
+		_lastHistoryItemId = FullMsgId();
+		_lastHistorySessionId = 0;
+		_lastSoundId = {};
+	}
 	if (_manager) {
 		_manager->clearFromSession(session);
 	}
@@ -748,7 +761,9 @@ void System::showNext() {
 		}
 	}
 	const auto &settings = Core::App().settings();
-	if (alertThread) {
+	if (alertThread && !Lunagram::IsChatLocked(
+		&alertThread->session(),
+		alertThread->peer()->id)) {
 		if (settings.flashBounceNotify()) {
 			const auto peer = alertThread->peer();
 			if (const auto window = Core::App().windowFor(peer)) {
@@ -1082,6 +1097,12 @@ void System::playSound(
 	lookupSound(&session->data(), id)->playOnce(volumeOverride);
 }
 
+void Manager::showNotification(NotificationFields fields) {
+	if (!Lunagram::ShouldHideNotification(fields.item)) {
+		doShowNotification(std::move(fields));
+	}
+}
+
 Manager::DisplayOptions Manager::getNotificationOptions(
 		HistoryItem *item,
 		Data::ItemNotificationType type) const {
@@ -1112,6 +1133,18 @@ Manager::DisplayOptions Manager::getNotificationOptions(
 		&& (peer->isNotificationsUser()
 			|| peer->isVerifyCodes());
 	return result;
+}
+
+void Manager::recordPostedNotification(
+		not_null<HistoryItem*> item,
+		const QString &title,
+		const TextWithEntities &preview) {
+	const auto options = getNotificationOptions(
+		item,
+		Data::ItemNotificationType::Message);
+	if (!options.hideNameAndPhoto && !options.hideMessageText) {
+		Lunagram::RecordPostedNotification(item, title, preview);
+	}
 }
 
 TextWithEntities Manager::ComposeReactionEmoji(
@@ -1278,8 +1311,12 @@ QString Manager::accountNameSeparator() {
 void Manager::notificationActivated(
 		NotificationId id,
 		ActivateOptions &&options) {
+	const auto session = system()->findSession(id.contextId.sessionId);
+	if (session && Lunagram::IsChatLocked(session, id.contextId.peerId)) {
+		return;
+	}
 	onBeforeNotificationActivated(id);
-	if (const auto session = system()->findSession(id.contextId.sessionId)) {
+	if (session) {
 		const auto history = session->data().history(
 			id.contextId.peerId);
 		const auto item = history->owner().message(
@@ -1330,6 +1367,9 @@ Window::SessionController *Manager::openNotificationMessage(
 		not_null<History*> history,
 		MsgId messageId,
 		bool openSeparated) {
+	if (Lunagram::IsChatLocked(&history->session(), history->peer->id)) {
+		return nullptr;
+	}
 	if (Core::App().passcodeLocked()) {
 		const auto window = history->session().tryResolveWindow();
 		if (window) {
@@ -1422,7 +1462,7 @@ void Manager::notificationReplied(
 	}
 
 	const auto session = system()->findSession(id.contextId.sessionId);
-	if (!session) {
+	if (!session || Lunagram::IsChatLocked(session, id.contextId.peerId)) {
 		return;
 	}
 	const auto history = session->data().history(id.contextId.peerId);
@@ -1478,7 +1518,7 @@ void Manager::notificationActionActivated(
 		return;
 	}
 	const auto session = system()->findSession(id.contextId.sessionId);
-	if (!session) {
+	if (!session || Lunagram::IsChatLocked(session, id.contextId.peerId)) {
 		return;
 	}
 	const auto history = session->data().history(id.contextId.peerId);
@@ -1656,6 +1696,7 @@ void NativeManager::doShowNotification(NotificationFields &&fields) {
 		.sound = sound,
 		.options = options,
 		.actions = std::move(actions),
+		.journalMessage = !reactionFrom,
 	}, userpicView);
 }
 

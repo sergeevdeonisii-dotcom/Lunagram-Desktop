@@ -239,12 +239,18 @@ void Sticker::draw(
 		Painter &p,
 		const PaintContext &context,
 		const QRect &r) {
-	if (!customEmojiPart()) {
+	if (!context.backdrop && !customEmojiPart()) {
 		_parent->clearCustomEmojiRepaint();
 	}
 
+	if (context.backdrop && !_dataMedia) {
+		return;
+	}
 	ensureDataMediaCreated();
-	if (readyToDrawAnimationFrame()) {
+	const auto animationReady = context.backdrop
+		? (!_lastFrameCached.isNull() || ready())
+		: readyToDrawAnimationFrame();
+	if (animationReady) {
 		paintAnimationFrame(p, context, r);
 	} else if (!_data->sticker()
 		|| (_data->sticker()->isLottie() && _replacements)
@@ -326,6 +332,7 @@ void Sticker::paintAnimationFrame(
 		? PowerSaving::kEmojiChat
 		: PowerSaving::kStickersChat;
 	const auto paused = context.paused
+		|| context.backdrop
 		|| (_diceIndex < 0 && On(powerSavingFlag));
 	const auto frame = _player
 		? _player->frame(
@@ -335,7 +342,7 @@ void Sticker::paintAnimationFrame(
 			context.now,
 			paused)
 		: StickerPlayer::FrameInfo();
-	if (_nextLastFrame) {
+	if (!context.backdrop && _nextLastFrame) {
 		_nextLastFrame = false;
 		_lastFrameCached = (_diceIndex > 0)
 			? CacheDiceImage(_diceEmoji, _diceIndex, frame.image)
@@ -357,7 +364,7 @@ void Sticker::paintAnimationFrame(
 				r.y() + (r.height() - size.height()) / 2),
 			size),
 		prepared);
-	if (!_lastFrameCached.isNull()) {
+	if (context.backdrop || !_lastFrameCached.isNull()) {
 		return;
 	}
 
@@ -464,9 +471,13 @@ QPixmap Sticker::paintedPixmap(const PaintContext &context) const {
 		: nullptr;
 	const auto good = _sensitiveBlurred
 		? nullptr
+		: context.backdrop
+		? _dataMedia->goodThumbnailCached()
 		: _dataMedia->goodThumbnail();
 	const auto image = _sensitiveBlurred
 		? nullptr
+		: context.backdrop
+		? _dataMedia->getStickerSmall()
 		: _dataMedia->getStickerLarge();
 	if (image) {
 		return image->pix(useSize, { .colored = colored });

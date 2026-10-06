@@ -88,6 +88,8 @@ public:
 	Row(Key key, int index, int top);
 	~Row();
 
+	[[nodiscard]] static const style::DialogRow &DefaultSt();
+	[[nodiscard]] static const style::DialogRow &TopicSt();
 	[[nodiscard]] static const style::DialogRow &ComputeSt(
 		not_null<const Entry*> entry,
 		FilterId filterId);

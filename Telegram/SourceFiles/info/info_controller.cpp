@@ -30,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_download_manager.h"
 #include "history/history_item.h"
 #include "main/main_session.h"
+#include "lunagram/chat_vault.h"
 #include "window/window_session_controller.h"
 #include "styles/style_profile.h"
 
@@ -525,6 +526,15 @@ void Controller::saveSearchState(not_null<ContentMemento*> memento) {
 void Controller::showSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const Window::SectionShow &params) {
+	if (const auto info = dynamic_cast<Memento*>(memento.get())) {
+		if (!Lunagram::AllowVaultInfo(&session(), info->content())) {
+			Lunagram::ShowVaultBox(parentController());
+			return;
+		}
+	} else if (Lunagram::VaultRestricted(&session())) {
+		Lunagram::ShowVaultBox(parentController());
+		return;
+	}
 	if (!_widget->showInternal(memento.get(), params)) {
 		AbstractController::showSection(std::move(memento), params);
 	}

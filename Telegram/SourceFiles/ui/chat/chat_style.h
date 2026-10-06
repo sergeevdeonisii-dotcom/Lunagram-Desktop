@@ -282,6 +282,7 @@ struct ChatPaintContext {
 	bool skipSelectionCheck = false;
 	bool outbg = false;
 	bool paused = false;
+	bool backdrop = false;
 
 };
 

@@ -916,7 +916,7 @@ void GiftButton::paint(QPainter &p, float64 craftProgress) {
 		const auto now = base::unixtime::now();
 		const auto upcomingAuction = (data.info.auctionStartDate > 0)
 			&& (data.info.auctionStartDate > now);
-		if (count || pinned) {
+		if (count || (pinned && unique)) {
 			const auto yourLeft = data.info.perUserTotal
 				? (data.info.perUserRemains
 					? tr::lng_gift_stars_your_left(
@@ -1007,14 +1007,16 @@ void GiftButton::paint(QPainter &p, float64 craftProgress) {
 		: 0;
 	v::match(_descriptor, [](const GiftTypePremium &) {
 	}, [&](const GiftTypeStars &data) {
-		if (!unique || _mode == Mode::Craft || _mode == Mode::CraftPreview) {
+		if (_mode == Mode::Craft || _mode == Mode::CraftPreview) {
 		} else if (data.pinned && _mode != Mode::Selection) {
 			auto hq = PainterHighQualityEnabler(p);
 			const auto &icon = st::giftBoxPinIcon;
 			const auto skip = st::giftBoxUserpicSkip;
 			const auto add = (st::giftBoxUserpicSize - icon.width()) / 2;
 			p.setPen(Qt::NoPen);
-			p.setBrush(unique->backdrop.patternColor);
+			p.setBrush(unique
+				? unique->backdrop.patternColor
+				: st::windowBgActive->c);
 			const auto rect = QRect(
 				QPoint(
 					extend.left() + skip + statusShift,
@@ -1022,7 +1024,7 @@ void GiftButton::paint(QPainter &p, float64 craftProgress) {
 				QSize(icon.width() + 2 * add, icon.height() + 2 * add));
 			p.drawEllipse(rect);
 			icon.paintInCenter(p, rect);
-		} else if (!data.forceTon
+		} else if (unique && !data.forceTon
 			&& unique->nanoTonForResale
 			&& unique->onlyAcceptTon) {
 			auto hq = PainterHighQualityEnabler(p);

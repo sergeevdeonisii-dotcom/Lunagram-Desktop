@@ -46,6 +46,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_controller.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller_link_info.h"
+#include "window/section_widget.h"
 #include "window/themes/window_theme.h"
 #include "chat_helpers/bot_command.h"
 #include "chat_helpers/tabbed_selector.h" // TabbedSelector::refreshStickers
@@ -63,6 +64,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_scheduled_section.h"
 #include "history/view/history_view_service_message.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
+#include "lunagram/design.h"
+#include "lunagram/lunagram_settings.h"
 #include "lang/lang_cloud_manager.h"
 #include "inline_bots/inline_bot_layout_item.h"
 #include "ui/boxes/confirm_box.h"
@@ -98,10 +102,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_user_photos.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_chat.h"
+#include "styles/style_lunagram_design.h"
 #include "styles/style_window.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QMimeData>
+#include <QtGui/QPainterPath>
 
 namespace {
 
@@ -460,6 +466,18 @@ MainWidget::MainWidget(
 				.sessionWindow = weak,
 			}));
 	});
+	_controller->defaultChatTheme()->repaintBackgroundRequests(
+	) | rpl::on_next([=] {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			update();
+		}
+	}, lifetime());
+	_controller->activeChatChanges() | rpl::on_next([=] {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			update();
+		}
+	}, lifetime());
+	crl::on_main(this, [] { Lunagram::EnsureReferenceAppearance(); });
 }
 
 MainWidget::~MainWidget() {
@@ -1434,6 +1452,10 @@ void MainWidget::showHistory(
 		PeerId peerId,
 		const SectionShow &params,
 		MsgId showAtMsgId) {
+	if (peerId && Lunagram::IsChatLocked(&session(), peerId)) {
+		Lunagram::ShowVaultBox(_controller);
+		return;
+	}
 	if (peerId && _controller->window().locked()) {
 		if (params.activation != anim::activation::background) {
 			_controller->window().activate();
@@ -1866,6 +1888,10 @@ bool MainWidget::saveSectionInStack(
 void MainWidget::showSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params) {
+	if (!Lunagram::AllowVaultSection(&session(), memento.get())) {
+		Lunagram::ShowVaultBox(_controller);
+		return;
+	}
 	if (_mainSection && _mainSection->showInternal(
 			memento.get(),
 			params)) {
@@ -1902,6 +1928,16 @@ void MainWidget::showSection(
 
 void MainWidget::updateColumnLayout() {
 	updateWindowAdaptiveLayout();
+}
+
+void MainWidget::clearLunagramViewCaches() {
+	_showAnimation = nullptr;
+	_thirdSectionFromStack = nullptr;
+	destroyThirdSection();
+	if (_player) {
+		_player->hide(anim::type::instant);
+	}
+	_playerPlaylist->hideIgnoringEnterEvents();
 }
 
 Window::SectionSlideParams MainWidget::prepareThirdSectionAnimation(Window::SectionWidget *section) {
@@ -1989,6 +2025,10 @@ Window::SectionSlideParams MainWidget::prepareDialogsAnimation() {
 void MainWidget::showNewSection(
 		std::shared_ptr<Window::SectionMemento> memento,
 		const SectionShow &params) {
+	if (!Lunagram::AllowVaultSection(&session(), memento.get())) {
+		Lunagram::ShowVaultBox(_controller);
+		return;
+	}
 	using Column = Window::Column;
 
 	if (_controller->window().locked()) {
@@ -2544,6 +2584,13 @@ void MainWidget::paintEvent(QPaintEvent *e) {
 	if (_background) {
 		checkChatBackground();
 	}
+	if (Lunagram::ReferenceDesignEnabled() && !_showAnimation) {
+		Lunagram::PaintReferenceBackdrop(
+			_controller,
+			_controller->currentChatTheme(),
+			this,
+			e->rect());
+	}
 	if (_showAnimation) {
 		auto p = QPainter(this);
 		_showAnimation->paintContents(p);
@@ -2761,7 +2808,16 @@ void MainWidget::updateControlsGeometry() {
 			accumulate_min(
 				dialogsWidth,
 				width() - st::columnMinimalWidthMain);
-			_dialogs->setGeometryToLeft(0, 0, dialogsWidth, height());
+			if (Lunagram::ReferenceDesignEnabled()) {
+				const auto inset = st::lunagramReferenceCardInset;
+				_dialogs->setGeometryToLeft(
+					inset,
+					inset,
+					dialogsWidth - 2 * inset,
+					height() - 2 * inset);
+			} else {
+				_dialogs->setGeometryToLeft(0, 0, dialogsWidth, height());
+			}
 		}
 		if (_sideShadow) {
 			_sideShadow->setGeometryToLeft(
@@ -2808,6 +2864,14 @@ void MainWidget::updateControlsGeometry() {
 				height());
 		}
 	}
+	if (_dialogs && Lunagram::ReferenceDesignEnabled()) {
+		auto path = QPainterPath();
+		path.addRoundedRect(
+			_dialogs->rect(),
+			st::lunagramReferenceCardRadius,
+			st::lunagramReferenceCardRadius);
+		_dialogs->setMask(QRegion(path.toFillPolygon().toPolygon()));
+	}
 	if (_mainSection) {
 		const auto mainSectionGeometry = QRect(
 			_history->x(),
@@ -2826,6 +2890,9 @@ void MainWidget::updateControlsGeometry() {
 	_contentScrollAddToY = 0;
 
 	floatPlayerUpdatePositions();
+	if (Lunagram::ReferenceDesignEnabled()) {
+		update();
+	}
 }
 
 void MainWidget::destroyThirdSection() {

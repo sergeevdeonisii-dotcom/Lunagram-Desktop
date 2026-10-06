@@ -1,4 +1,11 @@
 <RCC>
+  <qresource prefix="/lunagram">
+    <file alias="langs/ru.strings">../../langs/lunagram_ru.strings</file>
+    <file alias="themes/glass.tdesktop-theme">../../lunagram/glass.tdesktop-theme</file>
+    <file alias="themes/black.tdesktop-theme">../../lunagram/black.tdesktop-theme</file>
+    <file alias="themes/pearl.tdesktop-theme">../../lunagram/pearl.tdesktop-theme</file>
+    <file alias="themes/liquid.tdesktop-theme">../../lunagram/liquid.tdesktop-theme</file>
+  </qresource>
   <qresource prefix="/gui">
     <file alias="art/background.tgv">../../art/background.tgv</file>
     <file alias="art/bg_thumbnail.png">../../art/bg_thumbnail.png</file>

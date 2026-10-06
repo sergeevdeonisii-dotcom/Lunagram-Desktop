@@ -40,6 +40,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/platform_specific.h"
 #include "platform/platform_integration.h"
 #include "history/history.h"
+#include "history/history_item.h"
+#include "lunagram/chat_vault.h"
+#include "lunagram/design.h"
 #include "apiwrap.h"
 #include "api/api_updates.h"
 #include "calls/calls_instance.h"
@@ -310,7 +313,8 @@ void Application::run() {
 
 	startLocalStorage();
 
-	style::SetCustomFont(settings().customFontFamily());
+	style::SetCustomFont(Lunagram::ReferenceFontFamily(
+		settings().customFontFamily()));
 	style::internal::StartFonts();
 
 	Test::ApplyStartupOverrides();
@@ -460,6 +464,14 @@ void Application::run() {
 
 	_openInMediaViewRequests.events(
 	) | rpl::on_next([=](Media::View::OpenRequest &&request) {
+		const auto item = request.item();
+		const auto peer = item ? item->history()->peer.get() : request.peer();
+		const auto controller = request.controller();
+		if ((peer && Lunagram::IsChatLocked(&peer->session(), peer->id))
+			|| (!peer && controller
+				&& Lunagram::VaultRestricted(&controller->session()))) {
+			return;
+		}
 		if (_mediaView) {
 			_mediaView->show(std::move(request));
 		}
@@ -715,6 +727,12 @@ bool Application::hideMediaView() {
 		return true;
 	}
 	return false;
+}
+
+void Application::closeMediaView() {
+	if (_mediaView) {
+		_mediaView->close();
+	}
 }
 
 bool Application::eventFilter(QObject *object, QEvent *e) {
@@ -977,6 +995,9 @@ void Application::startEmojiImageLoader() {
 
 void Application::setScreenIsLocked(bool locked) {
 	_screenIsLocked = locked;
+	if (locked) {
+		Lunagram::LockAllVaults();
+	}
 }
 
 bool Application::screenIsLocked() const {
@@ -1066,6 +1087,7 @@ void Application::handleAppActivated() {
 }
 
 void Application::handleAppDeactivated() {
+	Lunagram::LockAllVaults();
 	enumerateWindows([&](not_null<Window::Controller*> w) {
 		w->updateIsActiveBlur();
 	});
@@ -1316,6 +1338,7 @@ void Application::updateWindowTitles() {
 }
 
 void Application::lockByPasscode() {
+	Lunagram::LockAllVaults();
 	_passcodeLock = true;
 	enumerateWindows([&](not_null<Window::Controller*> w) {
 		w->setupPasscodeLock();
@@ -1747,6 +1770,7 @@ void Application::windowActivated(not_null<Window::Controller*> window) {
 	const auto nowSession = now->maybeSession();
 	if (wasSession != nowSession) {
 		if (wasSession) {
+			Lunagram::LockVault(wasSession);
 			wasSession->updates().updateOnline();
 		}
 		if (nowSession) {

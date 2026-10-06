@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/media/history_view_media_common.h"
 #include "history/view/media/history_view_media_spoiler.h"
 #include "lang/lang_keys.h"
+#include "lunagram/lunagram_settings.h"
 #include "media/streaming/media_streaming_instance.h"
 #include "media/streaming/media_streaming_player.h"
 #include "media/streaming/media_streaming_document.h"
@@ -82,10 +83,13 @@ using Data::PhotoSize;
 
 [[nodiscard]] QSize PhotoDesiredMediaSize(
 		QSize dimensions,
-		bool hostedInstantView) {
+		bool hostedInstantView,
+		int maximumSize) {
 	return hostedInstantView
 		? NonEmptySize(style::ConvertScale(dimensions))
-		: CountDesiredMediaSize(dimensions);
+		: DownscaledSize(
+			style::ConvertScale(dimensions),
+			{ maximumSize, maximumSize });
 }
 
 } // namespace
@@ -228,6 +232,22 @@ void Photo::togglePollingStory(bool enabled) const {
 	_pollingStory = pollingStory;
 }
 
+int Photo::maximumMediaSize() const {
+	const auto media = _parent->data()->media();
+	const auto reference = Lunagram::ReferenceDesignEnabled()
+		&& _parent->media() == this
+		&& media
+		&& media->photo() == _data.get()
+		&& !_storyId
+		&& !_serviceWidth
+		&& !_data->extendedMediaVideoDuration()
+		&& !IsHostedInstantViewMedia(_parent)
+		&& !_parent->data()->isFakeAboutView()
+		&& !_parent->data()->isSponsored()
+		&& _parent->delegate()->elementChatMode() != ElementChatMode::Narrow;
+	return reference ? st::lunagramReferencePhotoMaxWidth : st::maxMediaSize;
+}
+
 QSize Photo::countOptimalSize() {
 	if (_serviceWidth > 0) {
 		return { int(_serviceWidth), int(_serviceWidth) };
@@ -237,11 +257,15 @@ QSize Photo::countOptimalSize() {
 		return forced;
 	}
 	const auto hostedInstantView = IsHostedInstantViewMedia(_parent);
+	const auto maximumSize = maximumMediaSize();
 	const auto dimensions = photoSize();
-	const auto scaled = PhotoDesiredMediaSize(dimensions, hostedInstantView);
+	const auto scaled = PhotoDesiredMediaSize(
+		dimensions,
+		hostedInstantView,
+		maximumSize);
 	const auto maxMediaWidth = hostedInstantView
-		? std::max(scaled.width(), st::maxMediaSize)
-		: st::maxMediaSize;
+		? std::max(scaled.width(), maximumSize)
+		: maximumSize;
 	const auto minWidth = std::clamp(
 		_parent->minWidthForMedia(),
 		(_parent->hasBubble()
@@ -255,12 +279,13 @@ QSize Photo::countOptimalSize() {
 		const auto botTop = _parent->Get<FakeBotAboutTop>();
 		const auto captionMaxWidth = _parent->textualMaxWidth();
 		if (botTop || !_parent->data()->isFakeAboutView()) {
+			const auto captionLimit = std::min(st::msgMaxWidth, maximumSize);
 			const auto maxWithCaption = std::min(
-				st::msgMaxWidth,
+				captionLimit,
 				captionMaxWidth);
 			maxWidth = std::min(
 				std::max(maxWidth, maxWithCaption),
-				st::msgMaxWidth);
+				captionLimit);
 			minHeight = adjustHeightForLessCrop(
 				dimensions,
 				{ maxWidth, minHeight });
@@ -278,9 +303,10 @@ QSize Photo::countCurrentSize(int newWidth) {
 		return forced;
 	}
 	const auto hostedInstantView = IsHostedInstantViewMedia(_parent);
+	const auto maximumSize = maximumMediaSize();
 	const auto thumbMaxWidth = hostedInstantView
 		? std::max(newWidth, 1)
-		: std::min(newWidth, st::maxMediaSize);
+		: std::min(newWidth, maximumSize);
 	const auto minWidth = std::clamp(
 		_parent->minWidthForMedia(),
 		std::min(thumbMaxWidth, _parent->hasBubble()
@@ -288,7 +314,10 @@ QSize Photo::countCurrentSize(int newWidth) {
 			: st::minPhotoSize),
 		thumbMaxWidth);
 	const auto dimensions = photoSize();
-	const auto desired = PhotoDesiredMediaSize(dimensions, hostedInstantView);
+	const auto desired = PhotoDesiredMediaSize(
+		dimensions,
+		hostedInstantView,
+		maximumSize);
 	auto pix = _data->extendedMediaVideoDuration()
 		? CountMediaSize(
 			desired,
@@ -307,7 +336,7 @@ QSize Photo::countCurrentSize(int newWidth) {
 		}
 		if (botTop || !_parent->data()->isFakeAboutView()) {
 			const auto maxWithCaption = std::min(
-				st::msgMaxWidth,
+				std::min(st::msgMaxWidth, maximumSize),
 				captionMaxWidth);
 			newWidth = std::min(
 				std::max(newWidth, maxWithCaption),
@@ -348,10 +377,14 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 		return;
 	} else if (_storyId && _data->isNull()) {
 		return;
+	} else if (context.backdrop && !_dataMedia) {
+		return;
 	}
 
 	ensureDataMediaCreated();
-	_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
+	if (!context.backdrop) {
+		_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
+	}
 	const auto st = context.st;
 	const auto sti = context.imageStyle();
 	const auto preview = _data->extendedMediaPreview();
@@ -363,7 +396,7 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 	auto paintx = 0, painty = 0, paintw = width(), painth = height();
 	auto bubble = _parent->hasBubble();
 
-	if (displayLoading) {
+	if (!context.backdrop && displayLoading) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(_dataMedia->progress());
@@ -695,6 +728,13 @@ void Photo::paintUserpicFrame(
 	Painter &p,
 	const PaintContext &context,
 	QPoint photoPosition) const {
+	if (context.backdrop) {
+		const auto size = QSize(width(), height());
+		const auto forum = _parent->data()->history()->isForum();
+		validateUserpicImageCache(size, forum);
+		p.drawImage(QRect(photoPosition, size), _imageCache);
+		return;
+	}
 	paintUserpicFrame(p, photoPosition, !context.paused);
 
 	if (_data->videoCanBePlayed() && !_streamed) {
@@ -826,8 +866,13 @@ void Photo::drawGrouped(
 		float64 highlightOpacity,
 		not_null<uint64*> cacheKey,
 		not_null<QPixmap*> cache) const {
+	if (context.backdrop && !_dataMedia) {
+		return;
+	}
 	ensureDataMediaCreated();
-	_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
+	if (!context.backdrop) {
+		_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
+	}
 
 	const auto st = context.st;
 	const auto sti = context.imageStyle();
@@ -835,7 +880,7 @@ void Photo::drawGrouped(
 	const auto loaded = preview || _dataMedia->loaded();
 	const auto displayLoading = !preview && _data->displayLoading();
 
-	if (displayLoading) {
+	if (!context.backdrop && displayLoading) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(_dataMedia->progress());

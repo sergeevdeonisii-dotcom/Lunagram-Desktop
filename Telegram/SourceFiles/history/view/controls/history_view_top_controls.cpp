@@ -364,7 +364,7 @@ rpl::producer<int> TopControls::heightValue() const {
 void TopControls::setupRootView() {
 	_repliesRootView = std::make_unique<Ui::PinnedBar>(_topBars.get(), [=] {
 		return _controller->isGifPausedAtLeastFor(Window::GifPauseReason::Any);
-	}, _controller->gifPauseLevelChanged());
+	}, _controller->gifPauseLevelChanged(), _controller);
 	_repliesRootView->setContent(rpl::combine(
 		RootViewContent(
 			_history,
@@ -821,7 +821,7 @@ void TopControls::checkPinnedBarState() {
 	_pinnedBar = std::make_unique<Ui::PinnedBar>(_topBars.get(), [=] {
 		return _controller->isGifPausedAtLeastFor(
 			Window::GifPauseReason::Any);
-	}, _controller->gifPauseLevelChanged());
+	}, _controller->gifPauseLevelChanged(), _controller);
 	auto pinnedRefreshed = Info::Profile::SharedMediaCountValue(
 		_history->peer,
 		topicRootId,

@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history.h"
 
+#include "lunagram/message_history.h"
+
 #include "history/view/history_view_element.h"
 #include "history/view/history_view_item_preview.h"
 #include "history/view/history_view_translate_tracker.h"
@@ -581,6 +583,7 @@ not_null<HistoryItem*> History::createItem(
 		bool newMessage) {
 	owner().fillMessagePeers(peer->id, message);
 	if (const auto result = owner().message(peer, id)) {
+		owner().lunagramHistory().observe(result, message);
 		if (detachExistingItem) {
 			result->removeMainView(Data::ViewRemovalReason::Detached);
 		}
@@ -592,6 +595,9 @@ not_null<HistoryItem*> History::createItem(
 	const auto result = message.match([&](const auto &data) {
 		return makeMessage(id, data, localFlags);
 	});
+	result->setLunagramRetainedDeleted(
+		owner().lunagramHistory().isDeleted(result->fullId()));
+	owner().lunagramHistory().observe(result, message);
 	if (newMessage && result->out() && result->isRegular()) {
 		session().topPeers().increment(peer, result->date());
 		if (result->starsPaid()) {
@@ -1840,13 +1846,21 @@ void History::addEdgesToSharedMedia() {
 }
 
 void History::addOlderSlice(const QVector<MTPMessage> &slice) {
+	const auto merged = owner().lunagramHistory().mergeDeleted(
+		this,
+		slice,
+		slice.isEmpty(),
+		blocks.empty());
 	if (slice.isEmpty()) {
 		_loadedAtTop = true;
+		if (const auto added = createItems(merged); !added.empty()) {
+			addCreatedOlderSlice(added);
+		}
 		checkLocalMessages();
 		return;
 	}
 
-	if (const auto added = createItems(slice); !added.empty()) {
+	if (const auto added = createItems(merged); !added.empty()) {
 		addCreatedOlderSlice(added);
 	} else {
 		// If no items were added it means we've loaded everything old.
@@ -1879,6 +1893,11 @@ void History::addCreatedOlderSlice(
 }
 
 void History::addNewerSlice(const QVector<MTPMessage> &slice) {
+	const auto merged = owner().lunagramHistory().mergeDeleted(
+		this,
+		slice,
+		blocks.empty(),
+		slice.isEmpty());
 	bool wasLoadedAtBottom = loadedAtBottom();
 
 	if (slice.isEmpty()) {
@@ -1888,7 +1907,7 @@ void History::addNewerSlice(const QVector<MTPMessage> &slice) {
 		}
 	}
 
-	if (const auto added = createItems(slice); !added.empty()) {
+	if (const auto added = createItems(merged); !added.empty()) {
 		Assert(!isBuildingFrontBlock());
 
 		for (const auto &item : added) {

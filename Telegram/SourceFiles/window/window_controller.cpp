@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_app_config.h"
 #include "media/view/media_view_open_common.h"
 #include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
 #include "intro/intro_widget.h"
 #include "mtproto/mtproto_config.h"
 #include "ui/toast/toast.h"
@@ -147,6 +148,12 @@ void Controller::showAccount(
 
 	const auto prevAccount = _id.account;
 	const auto prevSession = maybeSession();
+	if (prevSession) {
+		Lunagram::LockVault(prevSession);
+	}
+	if (const auto session = account->maybeSession()) {
+		Lunagram::LockVault(session);
+	}
 	const auto prevSessionUniqueId = prevSession
 		? prevSession->uniqueId()
 		: 0;

@@ -8,57 +8,62 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/main_window.h"
 
 #include "api/api_updates.h"
-#include "storage/localstorage.h"
-#include "platform/platform_specific.h"
-#include "ui/platform/ui_platform_window.h"
-#include "ui/platform/ui_platform_window_title.h"
-#include "platform/platform_window_title.h"
-#include "history/history.h"
-#include "info/media/info_media_widget.h" // SharedMediaTitle.
-#include "window/window_saved_windows.h"
-#include "window/window_separate_id.h"
-#include "window/window_session_controller.h"
-#include "window/window_lock_widgets.h"
-#include "window/window_controller.h"
-#include "main/main_account.h" // Account::sessionValue.
-#include "main/main_domain.h"
+#include "base/crc32hash.h"
+#include "base/options.h"
 #include "core/application.h"
 #include "core/sandbox.h"
 #include "core/shortcuts.h"
 #include "core/update_channel.h"
-#include "lang/lang_keys.h"
-#include "data/data_session.h"
 #include "data/data_forum_topic.h"
+#include "data/data_session.h"
 #include "data/data_user.h"
+#include "history/history.h"
+#include "info/media/info_media_widget.h" // SharedMediaTitle.
+#include "lang/lang_keys.h"
+#include "lunagram/chat_vault.h"
+#include "lunagram/lunagram_settings.h"
+#include "lunagram/window_chrome.h"
+#include "main/main_account.h" // Account::sessionValue.
+#include "main/main_domain.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
-#include "base/options.h"
-#include "base/crc32hash.h"
+#include "platform/platform_specific.h"
+#include "platform/platform_window_title.h"
+#include "storage/localstorage.h"
 #include "ui/boxes/confirm_box.h"
-#include "ui/toast/toast.h"
-#include "ui/widgets/shadow.h"
 #include "ui/controls/title_sub_widget.h"
 #include "ui/controls/window_outdated_bar.h"
 #include "ui/controls/window_screen_reader_bar.h"
+#include "ui/platform/ui_platform_window.h"
+#include "ui/platform/ui_platform_window_title.h"
+#include "ui/toast/toast.h"
+#include "ui/widgets/shadow.h"
 #include "ui/painter.h"
 #include "ui/screen_reader_mode.h"
 #include "ui/ui_utility.h"
+#include "window/window_controller.h"
+#include "window/window_lock_widgets.h"
+#include "window/window_saved_windows.h"
+#include "window/window_separate_id.h"
+#include "window/window_session_controller.h"
 #include "apiwrap.h"
 #include "mainwidget.h" // session->content()->windowShown().
 #include "tray.h"
-#include "styles/style_window.h"
-#include "styles/style_dialogs.h" // ChildSkip().x() for new child windows.
 
 #ifdef Q_OS_MAC
 #include "platform/mac/global_menu_mac.h"
 #endif // Q_OS_MAC
 
 #include <QtCore/QMimeData>
-#include <QtGui/QWindow>
-#include <QtGui/QScreen>
 #include <QtGui/QDrag>
+#include <QtGui/QScreen>
+#include <QtGui/QWindow>
 
 #include <kurlmimedata.h>
+
+#include "styles/style_dialogs.h" // ChildSkip().x() for new child windows.
+#include "styles/style_lunagram_design.h"
+#include "styles/style_window.h"
 
 namespace Window {
 namespace {
@@ -66,6 +71,16 @@ namespace {
 constexpr auto kSaveWindowPositionTimeout = crl::time(1000);
 
 using Core::WindowPosition;
+
+[[nodiscard]] const style::WindowTitle &ReferenceWindowTitle() {
+	static const auto result = [] {
+		auto result = st::defaultWindowTitle;
+		result.height = st::lunagramReferenceTitleHeight;
+		result.shadow = false;
+		return result;
+	}();
+	return result;
+}
 
 [[nodiscard]] QRect ScreenAvailableGeometry(not_null<const QWidget*> widget) {
 	// When the last monitor is removed Qt keeps delivering resize events
@@ -556,6 +571,12 @@ QRect MainWindow::desktopRect() const {
 
 void MainWindow::init() {
 	initHook();
+	_controller->sessionControllerChanges(
+	) | rpl::on_next([=] {
+		if (_windowChrome) {
+			_windowChrome->clearCaptionSource();
+		}
+	}, lifetime());
 
 	updatePalette();
 
@@ -678,6 +699,13 @@ int MainWindow::computeMinHeight() const {
 }
 
 void MainWindow::refreshTitleWidget() {
+	if (_windowChrome && !_windowChrome->isHidden()) {
+		setTitleStyle(ReferenceWindowTitle());
+		setNativeFrame(false);
+		_titleShadow.destroy();
+		return;
+	}
+	setTitleStyle(st::defaultWindowTitle);
 	if (Ui::Platform::NativeWindowFrameSupported()
 		&& Core::App().settings().nativeWindowFrame()) {
 		setNativeFrame(true);
@@ -689,6 +717,52 @@ void MainWindow::refreshTitleWidget() {
 		setNativeFrame(false);
 		_titleShadow.destroy();
 	}
+}
+
+void MainWindow::setReferenceCaptionArea(
+		not_null<SessionController*> controller,
+		not_null<QWidget*> source,
+		QRect area,
+		QRect menuArea,
+		Fn<void()> menuClicked) {
+	if (sessionController() != controller.get()
+		|| !Lunagram::ReferenceDesignEnabled()
+		|| !Platform::IsWindows()) {
+		return;
+	}
+	if (!_windowChrome) {
+		_windowChrome.create(this, [=] { queueReferenceChromeUpdate(); });
+	}
+	_windowChrome->setCaptionArea(
+		source,
+		area,
+		[=] { return sessionController() == controller.get(); },
+		menuArea,
+		std::move(menuClicked));
+}
+
+void MainWindow::queueReferenceChromeUpdate() {
+	if (Core::Quitting()
+		|| _referenceChromeUpdateScheduled) {
+		return;
+	}
+	_referenceChromeUpdateScheduled = true;
+	InvokeQueued(this, [=] {
+		if (Core::Quitting()) {
+			return;
+		}
+		_referenceChromeUpdateScheduled = false;
+		const auto normal = (windowState() == Qt::WindowNoState);
+		const auto margins = frameMargins();
+		const auto bodyGeometry = body()->mapToGlobal(body()->rect());
+		refreshTitleWidget();
+		recountGeometryConstraints();
+		if (normal
+			&& windowState() == Qt::WindowNoState
+			&& margins != frameMargins()) {
+			setGeometry(bodyGeometry);
+		}
+	});
 }
 
 void MainWindow::setupCanaryTitleLabel() {
@@ -885,6 +959,12 @@ void MainWindow::updateTitle() {
 	if (Core::Quitting()) {
 		return;
 	}
+	if (const auto controller = _controller->sessionController()) {
+		if (Lunagram::VaultRestricted(&controller->session())) {
+			setTitle(tr::lng_lunagram_vault_title(tr::now));
+			return;
+		}
+	}
 
 	const auto suffix = nativeTitleSuffix();
 	const auto settings = Core::App().settings().windowTitleContent();
@@ -911,7 +991,7 @@ void MainWindow::updateTitle() {
 		: Dialogs::Key();
 	const auto thread = key ? key.thread() : nullptr;
 	if (!thread) {
-		setTitle((user.isEmpty() ? u"Telegram"_q : user) + added + suffix);
+		setTitle((user.isEmpty() ? u"Lunagram"_q : user) + added + suffix);
 		return;
 	}
 	const auto history = thread->owningHistory();
@@ -1149,6 +1229,7 @@ void MainWindow::launchDrag(
 }
 
 MainWindow::~MainWindow() {
+	_windowChrome.destroy();
 	// Otherwise:
 	// ~QWidget
 	// QWidgetPrivate::close_helper

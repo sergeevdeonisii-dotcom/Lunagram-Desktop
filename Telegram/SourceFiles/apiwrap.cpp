@@ -74,6 +74,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/random.h"
 #include "base/call_delayed.h"
 #include "lang/lang_keys.h"
+#include "lunagram/formatting.h"
 #include "mainwidget.h"
 #include "boxes/add_contact_box.h"
 #include "mtproto/mtproto_config.h"
@@ -4732,6 +4733,7 @@ void ApiWrap::sendMessage(
 		history,
 		_session->user()).flags;
 	TextUtilities::PrepareForSending(left, prepareFlags);
+	Lunagram::ApplyAutomaticFormatting(_session, left);
 
 	HistoryItem *lastMessage = nullptr;
 

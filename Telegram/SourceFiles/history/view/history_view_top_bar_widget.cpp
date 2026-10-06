@@ -21,6 +21,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "mtproto/mtproto_config.h"
 #include "lang/lang_keys.h"
+#include "lunagram/design.h"
+#include "lunagram/lunagram_settings.h"
 #include "core/shortcuts.h"
 #include "core/application.h"
 #include "core/core_settings.h"
@@ -40,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/button_context_menu.h"
 #include "ui/ui_utility.h"
 #include "window/window_adaptive.h"
+#include "window/section_widget.h"
 #include "window/window_session_controller.h"
 #include "window/window_peer_menu.h"
 #include "calls/calls_instance.h"
@@ -69,6 +72,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_dialogs.h"
 #include "styles/style_chat.h"
 #include "styles/style_info.h"
+#include "styles/style_lunagram_design.h"
 
 #include <QtGui/QWindow>
 
@@ -130,7 +134,7 @@ TopBarWidget::TopBarWidget(
 , _menuToggle(this, st::topBarMenuToggle)
 , _titlePeerText(st::windowMinWidth / 3)
 , _onlineUpdater([=] { updateOnlineDisplay(); }) {
-	setAttribute(Qt::WA_OpaquePaintEvent);
+	setAttribute(Qt::WA_OpaquePaintEvent, !Lunagram::ReferenceDesignEnabled());
 
 	_clear->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
 	_forward->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
@@ -515,6 +519,14 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 		return;
 	}
 	updateConnectingState();
+	const auto theme = _controller->currentChatTheme();
+	if (Lunagram::ReferenceDesignEnabled()) {
+		Lunagram::PaintReferenceBackdrop(
+			_controller,
+			theme,
+			this,
+			e->rect());
+	}
 	Painter p(this);
 
 	const auto selectedButtonsTop = countSelectedButtonsTop(
@@ -524,7 +536,66 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 		: -st::topBarHeight;
 	const auto slidingTop = std::max(selectedButtonsTop, searchFieldTop);
 
-	p.fillRect(QRect(0, 0, width(), st::topBarHeight), st::topBarBg);
+	if (Lunagram::ReferenceDesignEnabled()) {
+		const auto inset = st::lunagramReferencePanelInset;
+		const auto selected = showSelectedState()
+			|| _selectedShown.animating()
+			|| _searchMode
+			|| _searchShown.animating()
+			|| _chooseForReportReason;
+		if (selected || rootChatsListBar()) {
+			Lunagram::PaintGlassPanel(
+				_controller,
+				theme,
+				this,
+				p,
+				rect().adjusted(inset, inset, -inset, -inset),
+				st::topBarBg->c);
+		} else {
+			const auto back = _back->geometry();
+			const auto backLeft = style::RightToLeft()
+				? width() - back.x() - back.width()
+				: back.x();
+			const auto left = _back->isHidden()
+				? inset
+				: backLeft + back.width() + inset;
+			const auto right = width() - _rightTaken - inset;
+			Lunagram::PaintGlassPanel(
+				_controller,
+				theme,
+				this,
+				p,
+				myrtlrect(left, inset, std::max(right - left, 0), height() - 2 * inset),
+				st::topBarBg->c);
+			for (const auto button : {
+				_back.data(),
+				_call.data(),
+				_groupCall.data(),
+				_search.data(),
+				_infoToggle.data(),
+				_menuToggle.data(),
+			}) {
+				if (!button->isHidden()) {
+					const auto diameter = st::lunagramReferenceHeaderButtonDiameter;
+					const auto center = button->geometry().topLeft()
+						+ QPoint(button->width() / 2, button->height() / 2);
+					const auto bounds = QRect(
+						center - QPoint(diameter / 2, diameter / 2),
+						QSize(diameter, diameter));
+					Lunagram::PaintGlassPanel(
+						_controller,
+						theme,
+						this,
+						p,
+						bounds,
+						st::topBarBg->c,
+						bounds.height() / 2);
+				}
+			}
+		}
+	} else {
+		p.fillRect(QRect(0, 0, width(), st::topBarHeight), st::topBarBg);
+	}
 	if (slidingTop < 0) {
 		p.translate(0, slidingTop + st::topBarHeight);
 		paintTopBar(p);
@@ -1049,6 +1120,9 @@ bool TopBarWidget::communityUserpicShown() const {
 }
 
 const style::UserpicButton &TopBarWidget::infoButtonStyle() const {
+	if (Lunagram::ReferenceDesignEnabled()) {
+		return st::lunagramReferenceTopBarInfoButton;
+	}
 	return communityChatsListBar()
 		? st::topBarCommunityInfoButton
 		: st::topBarInfoButton;
@@ -1116,7 +1190,9 @@ void TopBarWidget::updateInfoButtonVisibility() {
 	}
 	const auto shown = (communityChatsListBar() && !rootChatsListBar())
 		? communityUserpicShown()
-		: (_controller->adaptive().isOneColumn() || !_primaryWindow);
+		: (Lunagram::ReferenceDesignEnabled()
+			|| _controller->adaptive().isOneColumn()
+			|| !_primaryWindow);
 	_info->setVisible(!_chooseForReportReason && shown);
 }
 
@@ -1293,7 +1369,8 @@ void TopBarWidget::finishAnimating() {
 void TopBarWidget::setAnimatingMode(bool enabled) {
 	if (_animatingMode != enabled) {
 		_animatingMode = enabled;
-		setAttribute(Qt::WA_OpaquePaintEvent, !_animatingMode);
+		setAttribute(Qt::WA_OpaquePaintEvent,
+			!_animatingMode && !Lunagram::ReferenceDesignEnabled());
 		finishAnimating();
 	} else if (!enabled) {
 		finishAnimating();
@@ -1316,7 +1393,8 @@ void TopBarWidget::updateControlsVisibility() {
 
 	const auto isOneColumn = _controller->adaptive().isOneColumn();
 	const auto backVisible = !rootChatsListBar()
-		&& (isOneColumn
+		&& (Lunagram::ReferenceDesignEnabled()
+			|| isOneColumn
 			|| (_activeChat.section == Section::ChatsList)
 			|| !_controller->content()->stackIsEmpty());
 	_back->setVisible(backVisible && !_chooseForReportReason);

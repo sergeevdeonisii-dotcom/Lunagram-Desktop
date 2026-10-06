@@ -638,6 +638,9 @@ private:
 	const not_null<Window::SessionController*> _controller;
 
 	not_null<IndexedList*> _shownList;
+	std::unique_ptr<IndexedList> _vaultShownList;
+	std::vector<Key> _vaultShownKeys;
+	FilterId _vaultFilterId = 0;
 	FilterId _filterId = 0;
 	bool _mouseSelection = false;
 	std::optional<QPoint> _lastMousePosition;

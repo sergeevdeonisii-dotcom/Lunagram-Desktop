@@ -34,6 +34,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
+#include "lunagram/lunagram_settings.h"
 #include "base/unixtime.h"
 #include "styles/style_dialogs.h"
 
@@ -403,6 +404,18 @@ Row::~Row() {
 	clearTopicJumpRipple();
 }
 
+const style::DialogRow &Row::DefaultSt() {
+	return Lunagram::ReferenceDesignEnabled()
+		? st::referenceDialogRow
+		: st::defaultDialogRow;
+}
+
+const style::DialogRow &Row::TopicSt() {
+	return Lunagram::ReferenceDesignEnabled()
+		? st::referenceForumTopicRow
+		: st::forumTopicRow;
+}
+
 const style::DialogRow &Row::ComputeSt(
 		not_null<const Entry*> entry,
 		FilterId filterId) {
@@ -410,24 +423,34 @@ const style::DialogRow &Row::ComputeSt(
 		const auto hasTags = entry->hasChatsFilterTags(filterId);
 		const auto wideRow = history->peer->displayAsForum()
 			|| history->amMonoforumAdmin();
+		if (Lunagram::ReferenceDesignEnabled()) {
+			return wideRow
+				? (hasTags
+					? st::referenceTaggedForumDialogRow
+					: st::referenceForumDialogRow)
+				: hasTags
+				? st::referenceTaggedDialogRow
+				: st::referenceDialogRow;
+		}
 		return wideRow
 			? (hasTags ? st::taggedForumDialogRow : st::forumDialogRow)
 			: hasTags
 			? st::taggedDialogRow
 			: st::defaultDialogRow;
 	} else if (entry->asTopic()) {
-		return st::forumTopicRow;
+		return TopicSt();
 	}
-	return st::defaultDialogRow;
+	return DefaultSt();
 }
 
 void Row::recountHeight(float64 narrowRatio, FilterId filterId) {
 	const auto &st = ComputeSt(_id.entry(), filterId);
-	_height = ((&st == &st::defaultDialogRow) || !_id.history())
-		? st::defaultDialogRow.height
+	const auto &normal = DefaultSt();
+	_height = ((&st == &normal) || !_id.history())
+		? normal.height
 		: anim::interpolate(
 			st.height,
-			st::defaultDialogRow.height,
+			normal.height,
 			narrowRatio);
 }
 

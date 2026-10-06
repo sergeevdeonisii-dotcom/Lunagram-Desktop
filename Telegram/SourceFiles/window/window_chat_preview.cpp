@@ -153,4 +153,11 @@ void ChatPreviewManager::cancelScheduled() {
 	_timer.cancel();
 }
 
+void ChatPreviewManager::clear() {
+	cancelScheduled();
+	_scheduledParentOverride = nullptr;
+	_topicLifetime.destroy();
+	_menu = nullptr;
+}
+
 } // namespace Window

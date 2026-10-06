@@ -973,6 +973,11 @@ topBarCommunityInfoButton: UserpicButton(topBarInfoButton) {
 	size: size(44px, topBarHeight);
 	photoSize: 34px;
 }
+lunagramReferenceTopBarInfoButton: UserpicButton(topBarInfoButton) {
+	size: size(42px, topBarHeight);
+	photoSize: 30px;
+	photoPosition: point(6px, -1px);
+}
 topBarConnectingPosition: point(2px, 5px);
 topBarConnectingSkip: 6px;
 topBarConnectingAnimation: InfiniteRadialAnimation(defaultInfiniteRadialAnimation) {

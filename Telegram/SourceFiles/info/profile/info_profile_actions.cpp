@@ -72,6 +72,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "inline_bots/bot_attach_web_view.h"
 #include "iv/iv_instance.h"
 #include "lang/lang_keys.h"
+#include "lunagram/gifts_profile.h"
+#include "lunagram/lunagram_settings.h"
 #include "main/main_session.h"
 #include "menu/menu_mute.h"
 #include "settings/settings_common.h"
@@ -1679,16 +1681,29 @@ Section DetailsFiller::makeInfo() {
 		}
 
 		{
+			const auto displayedPhone = [=] {
+				return Lunagram::ProfilePhoneValue(user, PhoneOrHiddenValue(user));
+			};
 			const auto phoneLabel = addInfoOneLine(
-				tr::lng_info_mobile_label(),
-				PhoneWithSpoilerValue(user, PhoneOrHiddenValue(user)),
+				rpl::combine(
+					tr::lng_info_mobile_label(),
+					tr::lng_lunagram_anonymous_local_label(),
+					rpl::single(rpl::empty) | rpl::then(
+						Lunagram::Changes(&user->session()))
+				) | rpl::map([=](
+						const QString &regular,
+						const QString &local,
+						auto) {
+					return Lunagram::HasLocalAnonymousNumber(user) ? local : regular;
+				}),
+				PhoneWithSpoilerValue(user, displayedPhone()),
 				tr::lng_profile_copy_phone(tr::now),
 				st::infoProfileLabeledPadding,
 				st::popupMenuWithIcons).text;
 			const auto hook = [=](Ui::FlatLabel::ContextMenuRequest request) {
 				if (request.selection.empty()) {
 					const auto callback = [=] {
-						CopyPhoneToClipboard(PhoneOrHiddenValue(user));
+						CopyPhoneToClipboard(displayedPhone());
 					};
 					request.menu->addAction(
 						tr::lng_profile_copy_phone(tr::now),
@@ -1701,6 +1716,20 @@ Section DetailsFiller::makeInfo() {
 				AddPhoneSpoilerMenu(request.menu, user);
 			};
 			phoneLabel->setContextMenuHook(hook);
+			phoneLabel->setClickHandlerFilter([=](
+					const ClickHandlerPtr &handler,
+					Qt::MouseButton button) {
+				if (Lunagram::HasLocalAnonymousNumber(user)) {
+					Lunagram::ShowAnonymousNumber(controller->uiShow(), user);
+					return false;
+				}
+				return infoClickFilter(handler, button);
+			});
+		}
+		if (user->isSelf()) {
+			addInfoLineGeneric(
+				tr::lng_lunagram_verification_local_label(),
+				Lunagram::LocalVerificationValue(user));
 		}
 		auto label = user->isBot()
 			? tr::lng_info_about_label()

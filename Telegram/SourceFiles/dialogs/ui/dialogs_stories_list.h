@@ -68,6 +68,7 @@ public:
 	~List();
 
 	void setExpandedHeight(int height, bool momentum = false);
+	void setCollapsedPreviewHidden(bool hidden);
 	void setLayoutConstraints(
 		QPoint positionSmall,
 		style::align alignSmall,
@@ -211,6 +212,7 @@ private:
 	bool _hiddenInstant : 1 = false;
 	bool _expandIgnored : 1 = false;
 	bool _expanded : 1 = false;
+	bool _collapsedPreviewHidden : 1 = false;
 
 	mutable CollapsedGeometry _lastCollapsedGeometry;
 	mutable float64 _lastCollapsedRatio = 0.;

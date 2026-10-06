@@ -402,6 +402,9 @@ void Location::draw(Painter &p, const PaintContext &context) const {
 	if (width() < st::msgPadding.left() + st::msgPadding.right() + 1) {
 		return;
 	}
+	if (context.backdrop && !_media) {
+		return;
+	}
 	auto paintx = 0, painty = 0, paintw = width(), painth = height();
 	const auto hostedInstantView = IsHostedInstantViewMedia(_parent);
 	bool bubble = _parent->hasBubble();
@@ -445,7 +448,24 @@ void Location::draw(Painter &p, const PaintContext &context) const {
 	}
 
 	ensureMediaCreated();
-	validateImageCache(rthumb.size(), rounding);
+	if (context.backdrop) {
+		if (_live && !_live->previous.isNull()) {
+			validateImageCache(
+				_live->previous,
+				_live->previousCache,
+				_live->previousRounding,
+				rthumb.size(),
+				rounding);
+		}
+		validateImageCache(
+			*_media,
+			_imageCache,
+			_imageCacheRounding,
+			rthumb.size(),
+			rounding);
+	} else {
+		validateImageCache(rthumb.size(), rounding);
+	}
 	const auto paintPrevious = _live && !_live->previous.isNull();
 	auto opacity = _imageCache.isNull() ? 0. : 1.;
 	if (paintPrevious) {
@@ -476,7 +496,7 @@ void Location::draw(Painter &p, const PaintContext &context) const {
 				.rounding = rounding,
 			});
 	}
-	if (_liveLocation) {
+	if (_liveLocation && !context.backdrop) {
 		ensureUserpicCreated();
 
 		const auto pinRadius = st::historyMapPinRadius;
@@ -626,7 +646,9 @@ void Location::paintLiveRemaining(
 		const auto text = RemainingTimeText(_parent, _live->period);
 		p.drawText(rect, text, style::al_center);
 		const auto each = std::clamp(_live->period / 360, 1, 86400);
-		_live->updateRemainingTimer.callOnce(each * crl::time(1000));
+		if (!context.backdrop) {
+			_live->updateRemainingTimer.callOnce(each * crl::time(1000));
+		}
 	}
 }
 

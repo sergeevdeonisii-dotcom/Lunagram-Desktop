@@ -60,6 +60,10 @@ namespace Iv {
 struct RichPage;
 } // namespace Iv
 
+namespace Lunagram {
+class PendingSend;
+} // namespace Lunagram
+
 namespace Data {
 class RepliesList;
 class ForumTopic;
@@ -369,7 +373,8 @@ private:
 		TextWithTags textWithTags,
 		bool useCurrentWebPageDraft,
 		Api::SendOptions options,
-		Fn<void()> done);
+		Fn<void()> done,
+		bool undoApproved = false);
 	void sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
@@ -568,6 +573,7 @@ private:
 	rpl::variable<bool> _botCommandStartExtraGuard = true;
 	rpl::variable<QString> _botKeyboardPlaceholder;
 	std::unique_ptr<ComposeControls> _composeControls;
+	std::shared_ptr<Lunagram::PendingSend> _lunagramPendingSend;
 	std::unique_ptr<SuggestOptionsBar> _suggestOptions;
 	std::unique_ptr<ComposeSearch> _composeSearch;
 	std::unique_ptr<HistoryView::BottomControls> _bottom;

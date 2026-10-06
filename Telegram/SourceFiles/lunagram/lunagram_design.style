@@ -1,0 +1,59 @@
+using "ui/basic.style";
+using "ui/widgets/widgets.style";
+using "ui/menu_icons.style";
+
+lunagramReferencePanelRadius: 20px;
+lunagramReferenceCardRadius: 24px;
+lunagramReferenceCardInset: 6px;
+lunagramReferencePanelInset: 5px;
+lunagramReferenceHeaderButtonDiameter: 38px;
+lunagramNavigationHeight: 52px;
+
+lunagramNavigationProfile: IconButton {
+	width: 40px;
+	height: 40px;
+	icon: icon {{ "lunagram/reference_profile", menuIconColor }};
+	iconOver: icon {{ "lunagram/reference_profile", menuIconColor }};
+	iconPosition: point(8px, 8px);
+	rippleAreaPosition: point(0px, 0px);
+	rippleAreaSize: 40px;
+	ripple: defaultRippleAnimationBgOver;
+}
+lunagramNavigationCalls: IconButton(lunagramNavigationProfile) {
+	icon: icon {{ "profile/call", menuIconColor }};
+	iconOver: icon {{ "profile/call", menuIconColor }};
+}
+lunagramNavigationChats: IconButton(lunagramNavigationProfile) {
+	icon: icon {{ "lunagram/reference_chats", activeButtonBg }};
+	iconOver: icon {{ "lunagram/reference_chats", activeButtonBg }};
+}
+lunagramNavigationSettings: IconButton(lunagramNavigationProfile) {
+	icon: menuIconSettings;
+	iconOver: menuIconSettings;
+}
+
+lunagramReferenceCaptionHeight: 36px;
+lunagramWindowCaptionHeight: lunagramReferenceCaptionHeight;
+lunagramTrafficLightRadius: 7px;
+lunagramTrafficLightHitSize: 20px;
+lunagramTrafficLightSpacing: 23px;
+lunagramTrafficLightLeft: 17px;
+lunagramTrafficLightTop: 18px;
+lunagramTrafficLightGlyphSize: 6px;
+lunagramTrafficLightGlyphWidth: 1px;
+lunagramReferenceTitleHeight: 0px;
+
+lunagramGlassBlurRadius: 24px;
+lunagramGlassRefractionWidth: 3px;
+lunagramGlassRefractionShift: 1px;
+lunagramGlassRefractionOpacity: 0.16;
+lunagramGlassTintAlpha: 190;
+lunagramGlassContentTintAlpha: 144;
+lunagramGlassSidebarTintAlpha: 212;
+lunagramGlassDarkTintAlpha: 232;
+lunagramGlassHighlightAlpha: 92;
+lunagramGlassShadeAlpha: 26;
+lunagramGlassHighlightWidth: 1px;
+lunagramGlassShadowWidth: 4px;
+lunagramGlassShadowOffset: 1px;
+lunagramGlassShadowAlpha: 14;

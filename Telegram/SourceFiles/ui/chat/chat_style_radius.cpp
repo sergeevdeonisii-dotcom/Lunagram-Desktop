@@ -6,12 +6,14 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/chat/chat_style_radius.h"
-#include "ui/chat/chat_style.h"
-#include "base/options.h"
 
+#include "base/options.h"
+#include "lunagram/lunagram_settings.h"
+#include "ui/chat/chat_style.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
+
 #include "styles/style_chat.h"
 
 namespace Ui {
@@ -34,7 +36,9 @@ int BubbleRadiusSmall() {
 
 int BubbleRadiusLarge() {
 	static const auto result = [] {
-		if (UseSmallMsgBubbleRadius.value()) {
+		if (Lunagram::ReferenceDesignEnabled()) {
+			return st::lunagramReferenceBubbleRadius;
+		} else if (UseSmallMsgBubbleRadius.value()) {
 			return st::bubbleRadiusSmall;
 		} else {
 			return st::bubbleRadiusLarge;
@@ -58,4 +62,4 @@ int MsgFileThumbRadiusLarge() {
 	return result;
 }
 
-}
+} // namespace Ui

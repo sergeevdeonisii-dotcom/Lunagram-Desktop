@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_contact_status.h"
 
 #include "lang/lang_keys.h"
+#include "lunagram/design.h"
+#include "lunagram/lunagram_settings.h"
 #include "ui/controls/userpic_button.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/buttons.h"
@@ -53,8 +55,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/edit_contact_box.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
-#include "styles/style_layers.h"
 #include "styles/style_info.h"
+#include "styles/style_layers.h"
+#include "styles/style_lunagram_design.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_widgets.h"
 
@@ -676,16 +679,19 @@ void ContactStatus::Bar::emojiStatusRepaint() {
 }
 
 SlidingBar::SlidingBar(
-	not_null<Ui::RpWidget*> parent,
-	object_ptr<Ui::RpWidget> wrapped)
+		not_null<Ui::RpWidget*> parent,
+		object_ptr<Ui::RpWidget> wrapped,
+		bool referencePanel)
 : _wrapped(parent, std::move(wrapped))
 , _shadow(parent) {
-	setup(parent);
+	setup(parent, referencePanel);
 	_wrapped.hide(anim::type::instant);
 	_shadow.hide();
 }
 
-void SlidingBar::setup(not_null<Ui::RpWidget*> parent) {
+void SlidingBar::setup(
+		not_null<Ui::RpWidget*> parent,
+		bool referencePanel) {
 	parent->widthValue(
 	) | rpl::on_next([=](int width) {
 		_wrapped.resizeToWidth(width);
@@ -705,7 +711,8 @@ void SlidingBar::setup(not_null<Ui::RpWidget*> parent) {
 		_wrapped.heightValue(),
 		rpl::mappers::_1 && rpl::mappers::_2 > 0
 	) | rpl::filter([=](bool shown) {
-		return (shown == _shadow.isHidden());
+		return (!referencePanel || !Lunagram::ReferenceDesignEnabled())
+			&& (shown == _shadow.isHidden());
 	}));
 }
 
@@ -1086,7 +1093,7 @@ void ContactStatus::hide() {
 
 class BusinessBotStatus::Bar final : public Ui::RpWidget {
 public:
-	Bar(QWidget *parent);
+	Bar(QWidget *parent, not_null<Window::SessionController*> controller);
 
 	void showState(State state);
 
@@ -1101,6 +1108,7 @@ private:
 
 	void showMenu();
 
+	const not_null<Window::SessionController*> _controller;
 	object_ptr<Ui::UserpicButton> _userpic = { nullptr };
 	object_ptr<Ui::FlatLabel> _name;
 	object_ptr<Ui::FlatLabel> _status;
@@ -1113,8 +1121,11 @@ private:
 
 };
 
-BusinessBotStatus::Bar::Bar(QWidget *parent)
+BusinessBotStatus::Bar::Bar(
+		QWidget *parent,
+		not_null<Window::SessionController*> controller)
 : RpWidget(parent)
+, _controller(controller)
 , _name(this, st::historyBusinessBotName)
 , _status(this, st::historyBusinessBotStatus)
 , _togglePaused(
@@ -1213,8 +1224,22 @@ void BusinessBotStatus::Bar::showMenu() {
 }
 
 void BusinessBotStatus::Bar::paintEvent(QPaintEvent *e) {
-	QPainter p(this);
-	p.fillRect(e->rect(), st::historyContactStatusButton.bgColor);
+	if (!Lunagram::ReferenceDesignEnabled()) {
+		QPainter(this).fillRect(e->rect(), st::historyContactStatusButton.bgColor);
+		return;
+	}
+	const auto theme = _controller->currentChatTheme();
+	Lunagram::PaintReferenceBackdrop(_controller, theme, this, e->rect());
+	auto p = QPainter(this);
+	p.setClipRect(e->rect(), Qt::IntersectClip);
+	const auto inset = st::lunagramReferencePanelInset;
+	Lunagram::PaintGlassPanel(
+		_controller,
+		theme,
+		this,
+		p,
+		rect().adjusted(inset, inset, -inset, -inset),
+		st::historyContactStatusButton.bgColor->c);
 }
 
 int BusinessBotStatus::Bar::resizeGetHeight(int newWidth) {
@@ -1249,8 +1274,8 @@ BusinessBotStatus::BusinessBotStatus(
 	not_null<Ui::RpWidget*> parent,
 	not_null<PeerData*> peer)
 : _controller(window)
-, _inner(Ui::CreateChild<Bar>(parent.get()))
-, _bar(parent, object_ptr<Bar>::fromRaw(_inner)) {
+, _inner(Ui::CreateChild<Bar>(parent.get(), window))
+, _bar(parent, object_ptr<Bar>::fromRaw(_inner), true) {
 	setupState(peer);
 	setupHandlers(peer);
 }

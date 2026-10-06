@@ -10,6 +10,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "base/object_ptr.h"
 
+namespace Window {
+class SessionController;
+} // namespace Window
+
 namespace Ui {
 
 struct MessageBarContent;
@@ -25,7 +29,8 @@ public:
 	PinnedBar(
 		not_null<QWidget*> parent,
 		Fn<bool()> customEmojiPaused,
-		rpl::producer<> customEmojiPausedChanges);
+		rpl::producer<> customEmojiPausedChanges,
+		not_null<Window::SessionController*> controller);
 	~PinnedBar();
 
 	void show();
@@ -57,6 +62,7 @@ private:
 	void updateShadowGeometry(QRect wrapGeometry);
 	void updateControlsGeometry(QRect wrapGeometry);
 
+	const not_null<Window::SessionController*> _controller;
 	Ui::SlideWrap<> _wrap;
 	std::unique_ptr<Ui::MessageBar> _bar;
 

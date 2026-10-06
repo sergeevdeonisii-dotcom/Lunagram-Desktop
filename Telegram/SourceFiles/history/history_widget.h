@@ -58,6 +58,11 @@ namespace Iv {
 struct RichPage;
 } // namespace Iv
 
+namespace Lunagram {
+class PendingSend;
+struct GlassBackdrop;
+} // namespace Lunagram
+
 namespace Support {
 class Autocomplete;
 struct Contact;
@@ -168,6 +173,7 @@ public:
 	[[nodiscard]] bool markingMessagesRead() const;
 	[[nodiscard]] bool markingContentsRead() const;
 	bool skipItemRepaint();
+	void invalidateComposeBackdrop(QRect innerArea = QRect());
 	void checkActivation();
 
 	void leaveToChildEvent(QEvent *e, QWidget *child) override;
@@ -459,7 +465,8 @@ private:
 		TextWithTags textWithTags,
 		bool useWebPageDraft,
 		Api::SendOptions options,
-		Fn<void()> done);
+		Fn<void()> done,
+		bool undoApproved = false);
 	void sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
@@ -622,6 +629,7 @@ private:
 	void setupShortcuts();
 	void setupGiftToChannelButton();
 	void setupDirectMessageButton();
+	void updateChannelButtonsGeometry();
 
 	void handlePeerMigration();
 
@@ -649,7 +657,12 @@ private:
 
 	void sendInlineResult(InlineBots::ResultSelected result);
 
-	void drawField(Painter &p, const QRect &rect);
+	[[nodiscard]] const Lunagram::GlassBackdrop *prepareComposeBackdrop();
+	void paintComposeBackdrop(Painter &p, QRect clip);
+	void drawField(
+		Painter &p,
+		const QRect &rect,
+		const Lunagram::GlassBackdrop *backdrop = nullptr);
 	void paintEditHeader(
 		Painter &p,
 		const QRect &rect,
@@ -839,6 +852,7 @@ private:
 
 	bool _preserveScrollTop = false;
 	bool _repaintFieldScheduled = false;
+	uint64 _composeBackdropRevision = 1;
 	bool _sentFromScheduledTip = false;
 
 	mtpRequestId _saveEditMsgRequestId = 0;
@@ -953,6 +967,7 @@ private:
 	std::shared_ptr<Ui::ChatStyle> _fieldChatStyle;
 	bool _cmdStartShown = false;
 	object_ptr<Ui::InputField> _field;
+	std::shared_ptr<Lunagram::PendingSend> _lunagramPendingSend;
 	std::unique_ptr<HistoryView::Controls::RichDraftPreview> _richDraftPreview;
 	base::unique_qptr<Ui::RpWidget> _fieldDisabled;
 	std::unique_ptr<Ui::RpWidget> _sendRestriction;

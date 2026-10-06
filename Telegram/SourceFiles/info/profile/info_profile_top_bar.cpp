@@ -64,6 +64,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lottie/lottie_multi_player.h"
 #include "main/main_session.h"
 #include "menu/menu_mute.h"
+#include "lunagram/gifts_profile.h"
+#include "lunagram/lunagram_settings.h"
 #include "settings/settings_credits_graphics.h"
 #include "settings/sections/settings_information.h"
 #include "settings/sections/settings_premium.h"
@@ -398,10 +400,15 @@ TopBar::TopBar(
 		this,
 		descriptor.controller->uiShow(),
 		_peer->isSelf() ? QString() : _peer->shortName(),
-		Data::StarsRatingValue(_peer),
+		Lunagram::DisplayRatingValue(_peer),
 		(_peer->isSelf()
 			? [=] { return _peer->owner().pendingStarsRating(); }
-			: Fn<Data::StarsRatingPending()>()))
+			: Fn<Data::StarsRatingPending()>()),
+		[=] {
+			return _peer->isSelf() && Lunagram::Enabled(
+				&_peer->session(),
+				Lunagram::Flag::LocalRating);
+		})
 	: nullptr)
 , _status(this, QString(), statusStyle())
 , _statusLabel(std::make_unique<StatusLabel>(_status.data(), _peer))

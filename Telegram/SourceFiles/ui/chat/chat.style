@@ -167,6 +167,7 @@ mediaInPaletteSelected: TextPalette(defaultTextPalette) {
 
 minPhotoSize: 100px;
 maxMediaSize: 430px;
+lunagramReferencePhotoMaxWidth: 320px;
 maxStickerSize: 224px;
 maxAnimatedEmojiSize: 112px;
 maxGifSize: 320px;
@@ -254,6 +255,14 @@ historyBotMenuButton: RoundButton(defaultActiveButton) {
 	height: 30px;
 	textTop: 6px;
 }
+lunagramReferenceBotMenuButton: RoundButton(historyBotMenuButton) {
+	textFg: historyComposeIconFg;
+	textFgOver: historyComposeIconFgOver;
+	textBg: transparent;
+	textBgOver: transparent;
+	height: 38px;
+	textTop: 10px;
+}
 
 topicButtonSkip: 3px;
 topicButtonPadding: margins(6px, 3px, 8px, 3px);
@@ -323,6 +332,7 @@ historyInfoToastIcon: icon {{ "toast/info", toastFg }};
 
 bubbleRadiusSmall: roundRadiusLarge;
 bubbleRadiusLarge: 16px;
+lunagramReferenceBubbleRadius: 18px;
 
 historyPhotoLeft: 14px;
 historyPhotoBubbleMinWidth: 200px;

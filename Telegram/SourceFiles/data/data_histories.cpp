@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_histories.h"
 
+#include "lunagram/message_history.h"
+
 #include "api/api_text_entities.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/ephemeral_messages.h"
@@ -818,6 +820,7 @@ void Histories::deleteAllMessages(
 		MsgId deleteTillId,
 		bool justClear,
 		bool revoke) {
+	_owner->lunagramHistory().forgetRange(history->peer->id);
 	sendRequest(history, RequestType::Delete, [=](Fn<void()> finish) {
 		const auto peer = history->peer;
 		const auto chat = peer->asChat();
@@ -913,6 +916,10 @@ void Histories::deleteMessagesByDates(
 	TimeId minDate,
 	TimeId maxDate,
 	bool revoke) {
+	_owner->lunagramHistory().forgetRange(
+		history->peer->id,
+		minDate,
+		maxDate);
 	sendRequest(history, RequestType::Delete, [=](Fn<void()> finish) {
 		const auto peer = history->peer;
 		using Flag = MTPmessages_DeleteHistory::Flag;
@@ -949,6 +956,13 @@ void Histories::deleteMessages(const MessageIdsList &ids, bool revoke) {
 	for (const auto &itemId : ids) {
 		if (const auto item = _owner->message(itemId)) {
 			const auto history = item->history();
+			if (item->lunagramRetainedDeleted()) {
+				if (_owner->lunagramHistory().forget(itemId)) {
+					remove.push_back(item);
+				}
+				continue;
+			}
+			_owner->lunagramHistory().forgetObserved(itemId);
 			if (item->isSavedMusicItem()) {
 				savedMusic.emplace(item->media()->document());
 				continue;

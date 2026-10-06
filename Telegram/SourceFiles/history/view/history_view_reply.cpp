@@ -851,7 +851,7 @@ void Reply::paint(
 	const auto &quoteSt = _hasQuoteIcon
 		? st::messageTextStyle.blockquote
 		: st::messageQuoteStyle;
-	const auto backgroundEmojiData = backgroundEmojiId
+	const auto backgroundEmojiData = backgroundEmojiId && !context.backdrop
 		? st->backgroundEmojiData(backgroundEmojiId, colorCollectible).get()
 		: nullptr;
 	const auto backgroundEmojiCache = !backgroundEmojiData
@@ -890,7 +890,7 @@ void Reply::paint(
 		cache->bg = rippleColor;
 	}
 
-	if (_ripple.animation) {
+	if (_ripple.animation && !context.backdrop) {
 		_ripple.lastPaintedPoint = inBubble ? QPoint(x, y) : QPoint();
 		_ripple.animation->paint(p, x, y, w, &rippleColor);
 		if (_ripple.animation->empty()) {
@@ -938,6 +938,9 @@ void Reply::paint(
 					? &messagePoll->attachedMedia
 					: nullptr;
 				const auto image = [&]() -> Image* {
+					if (context.backdrop) {
+						return nullptr;
+					}
 					if (pollMediaPtr) {
 						if (pollMediaPtr->photo) {
 							return pollMediaPtr->photo->getReplyPreview(

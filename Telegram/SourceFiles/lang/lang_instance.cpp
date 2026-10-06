@@ -299,6 +299,7 @@ void Instance::reset(const Language &data) {
 		_values[i] = GetOriginalValue(ushort(i));
 	}
 	ranges::fill(_nonDefaultSet, 0);
+	applyLunagramTranslations();
 	updateChoosingStickerReplacement();
 
 	_idChanges.fire_copy(_id);
@@ -544,10 +545,20 @@ void Instance::fillFromSerialized(
 	for (auto i = 0, count = nonDefaultValuesCount * 2; i != count; i += 2) {
 		applyValue(nonDefaultStrings[i], nonDefaultStrings[i + 1]);
 	}
+	applyLunagramTranslations();
 	updatePluralRules();
 	updateChoosingStickerReplacement();
 
 	_idChanges.fire_copy(_id);
+}
+
+void Instance::applyLunagramTranslations() {
+	if ((_id != u"ru"_q && baseId() != u"ru"_q) || isCustom()) {
+		return;
+	}
+	loadFromContent(Lang::FileParser::ReadFile(
+		u":/lunagram/langs/ru.strings"_q,
+		QString()));
 }
 
 void Instance::loadFromContent(const QByteArray &content) {
@@ -694,6 +705,7 @@ void Instance::applyDifferenceToMe(
 			resetValue(key);
 		});
 	}
+	applyLunagramTranslations();
 	if (!_derived) {
 		_updated.fire({});
 	} else {

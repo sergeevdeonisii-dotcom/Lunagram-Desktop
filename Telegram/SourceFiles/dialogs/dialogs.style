@@ -101,6 +101,29 @@ defaultDialogRow: DialogRow {
 	textLeft: 68px;
 	textTop: 34px;
 }
+dialogsReferenceRowHeight: 64px;
+referenceDialogRow: DialogRow(defaultDialogRow) {
+	height: dialogsReferenceRowHeight;
+	photoSize: 48px;
+	nameTop: 8px;
+	textTop: 30px;
+}
+dialogsReferenceRowInset: 4px;
+dialogsReferenceRowRadius: 12px;
+dialogsReferenceSeparatorOpacity: 0.06;
+dialogsReferenceNavigationMinimumWidth: 160px;
+dialogsReferenceCaptionTitleSide: 68px;
+dialogsReferenceSearchSide: 8px;
+lunagramReferenceNewChat: IconButton {
+	width: 30px;
+	height: 30px;
+	icon: icon {{ "menu/edit", activeButtonBg }};
+	iconOver: icon {{ "menu/edit", activeButtonBgOver }};
+	iconPosition: point(3px, 3px);
+	rippleAreaPosition: point(0px, 0px);
+	rippleAreaSize: 30px;
+	ripple: defaultRippleAnimationBgOver;
+}
 communityRequestableListItem: PeerListItem(defaultPeerListItem) {
 	height: dialogsRowHeight;            // == st::defaultDialogRow.height (62px)
 	photoSize: 46px;                     // == st::defaultDialogRow.photoSize
@@ -126,6 +149,21 @@ forumDialogRow: DialogRow(defaultDialogRow) {
 taggedForumDialogRow: DialogRow(forumDialogRow) {
 	height: 96px;
 	tagTop: 77px;
+}
+referenceTaggedDialogRow: DialogRow(referenceDialogRow) {
+	height: 74px;
+	tagTop: 54px;
+}
+referenceForumDialogRow: DialogRow(referenceDialogRow) {
+	height: 82px;
+	textTop: 32px;
+	topicsSkip: 8px;
+	topicsSkipBig: 14px;
+	topicsHeight: 21px;
+}
+referenceTaggedForumDialogRow: DialogRow(referenceForumDialogRow) {
+	height: 98px;
+	tagTop: 79px;
 }
 communityInfoDialogRow: DialogRow(defaultDialogRow) {
 	padding: margins(22px, 8px, 18px, 8px);
@@ -333,6 +371,10 @@ dialogsFilter: InputField(defaultInputField) {
 	style: defaultTextStyle;
 
 	heightMin: 35px;
+}
+dialogsReferenceFilter: InputField(dialogsFilter) {
+	borderRadius: 12px;
+	heightMin: 36px;
 }
 dialogsCancelSearchInPeer: IconButton(dialogsMenuToggle) {
 	icon: icon {{ "dialogs/dialogs_cancel_search", dialogsMenuIconFg }};
@@ -634,6 +676,9 @@ forumTopicRow: DialogRow(defaultDialogRow) {
 	textLeft: 39px;
 	textTop: 29px;
 	unreadMarkDiameter: 8px;
+}
+referenceForumTopicRow: DialogRow(forumTopicRow) {
+	height: dialogsReferenceRowHeight;
 }
 forumTopicIconPosition: point(2px, 0px);
 editTopicTitleMargin: margins(70px, 2px, 22px, 18px);

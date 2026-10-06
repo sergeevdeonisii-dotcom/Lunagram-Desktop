@@ -4,6 +4,7 @@
 "lng_lunagram_profile" = "Локальное оформление профиля";
 "lng_lunagram_local_data" = "Локальные данные и безопасность";
 "lng_lunagram_appearance" = "Оформление";
+"lng_lunagram_intro_about" = "Независимый клиент Telegram с оформлением и локальными возможностями Lunagram.";
 "lng_lunagram_low_data" = "Экономия трафика медиа";
 "lng_lunagram_low_data_description" = "Отключает новые автоматические загрузки и решения об автопроигрывании медиа для этого аккаунта. Ручные загрузки, миниатюры и уже запущенные медиа не отменяются. Соединение Telegram и уведомления работают как обычно.";
 "lng_lunagram_glass" = "Скруглённое полупрозрачное поле ввода";
@@ -12,6 +13,8 @@
 "lng_lunagram_theme_glass" = "Туманность · тёмное стекло";
 "lng_lunagram_theme_black" = "Горизонт событий · чёрная тема";
 "lng_lunagram_theme_pearl" = "Лунный свет · жемчужная тема";
+"lng_lunagram_theme_liquid" = "Liquid Glass · дизайн по образцу";
+"lng_lunagram_reference_design_description" = "Скруглённые плавающие панели, мятный фон и нижняя навигация. Чаты и сообщения сохраняются; оформление действует только в Lunagram.";
 "lng_lunagram_theme_failed" = "Не удалось применить встроенную тему.";
 "lng_lunagram_typing_animation" = "Локальная анимация ввода";
 "lng_lunagram_typing_letters" = "Импульс по буквам";

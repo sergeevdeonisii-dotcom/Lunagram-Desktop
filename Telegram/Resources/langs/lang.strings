@@ -8781,6 +8781,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_lunagram_profile" = "Local profile appearance";
 "lng_lunagram_local_data" = "Local data and security";
 "lng_lunagram_appearance" = "Appearance";
+"lng_lunagram_intro_about" = "An independent Telegram client with Lunagram's design and local features.";
 "lng_lunagram_low_data" = "Reduced media traffic";
 "lng_lunagram_low_data_description" = "Stops new automatic media-download and autoplay decisions for this account. Manual downloads, thumbnails and already running media are not canceled. Telegram connection and notifications stay normal.";
 "lng_lunagram_glass" = "Rounded translucent composer";
@@ -8789,6 +8790,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_lunagram_theme_glass" = "Nebula · dark glass";
 "lng_lunagram_theme_black" = "Event horizon · full black";
 "lng_lunagram_theme_pearl" = "Moonlight · pearl";
+"lng_lunagram_theme_liquid" = "Liquid Glass · reference design";
+"lng_lunagram_reference_design_description" = "Rounded floating panels, mint wallpaper and desktop navigation. Your chats and messages are unchanged; this design is local to Lunagram.";
 "lng_lunagram_theme_failed" = "Could not apply the built-in theme.";
 "lng_lunagram_typing_animation" = "Local typing animation";
 "lng_lunagram_typing_letters" = "Letter pulse";

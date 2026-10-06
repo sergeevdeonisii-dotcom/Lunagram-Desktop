@@ -11,6 +11,8 @@ class Session;
 
 namespace Lunagram {
 
+[[nodiscard]] bool ReferenceDesignEnabled();
+
 enum class Flag {
 	PreserveDeleted,
 	RecordEdits,

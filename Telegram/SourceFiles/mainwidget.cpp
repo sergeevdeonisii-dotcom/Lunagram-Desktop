@@ -46,6 +46,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_controller.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller_link_info.h"
+#include "window/section_widget.h"
 #include "window/themes/window_theme.h"
 #include "chat_helpers/bot_command.h"
 #include "chat_helpers/tabbed_selector.h" // TabbedSelector::refreshStickers
@@ -64,6 +65,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_service_message.h"
 #include "lang/lang_keys.h"
 #include "lunagram/chat_vault.h"
+#include "lunagram/design.h"
+#include "lunagram/lunagram_settings.h"
 #include "lang/lang_cloud_manager.h"
 #include "inline_bots/inline_bot_layout_item.h"
 #include "ui/boxes/confirm_box.h"
@@ -99,10 +102,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_user_photos.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_chat.h"
+#include "styles/style_lunagram_design.h"
 #include "styles/style_window.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QMimeData>
+#include <QtGui/QPainterPath>
 
 namespace {
 
@@ -461,6 +466,7 @@ MainWidget::MainWidget(
 				.sessionWindow = weak,
 			}));
 	});
+	crl::on_main(this, [] { Lunagram::EnsureReferenceAppearance(); });
 }
 
 MainWidget::~MainWidget() {
@@ -2567,6 +2573,13 @@ void MainWidget::paintEvent(QPaintEvent *e) {
 	if (_background) {
 		checkChatBackground();
 	}
+	if (Lunagram::ReferenceDesignEnabled() && !_showAnimation) {
+		Window::SectionWidget::PaintBackground(
+			_controller,
+			_controller->defaultChatTheme().get(),
+			this,
+			e->rect());
+	}
 	if (_showAnimation) {
 		auto p = QPainter(this);
 		_showAnimation->paintContents(p);
@@ -2784,7 +2797,16 @@ void MainWidget::updateControlsGeometry() {
 			accumulate_min(
 				dialogsWidth,
 				width() - st::columnMinimalWidthMain);
-			_dialogs->setGeometryToLeft(0, 0, dialogsWidth, height());
+			if (Lunagram::ReferenceDesignEnabled()) {
+				const auto inset = st::lunagramReferenceCardInset;
+				_dialogs->setGeometryToLeft(
+					inset,
+					inset,
+					dialogsWidth - 2 * inset,
+					height() - 2 * inset);
+			} else {
+				_dialogs->setGeometryToLeft(0, 0, dialogsWidth, height());
+			}
 		}
 		if (_sideShadow) {
 			_sideShadow->setGeometryToLeft(
@@ -2830,6 +2852,14 @@ void MainWidget::updateControlsGeometry() {
 				mainSectionWidth,
 				height());
 		}
+	}
+	if (_dialogs && Lunagram::ReferenceDesignEnabled()) {
+		auto path = QPainterPath();
+		path.addRoundedRect(
+			_dialogs->rect(),
+			st::lunagramReferenceCardRadius,
+			st::lunagramReferenceCardRadius);
+		_dialogs->setMask(QRegion(path.toFillPolygon().toPolygon()));
 	}
 	if (_mainSection) {
 		const auto mainSectionGeometry = QRect(

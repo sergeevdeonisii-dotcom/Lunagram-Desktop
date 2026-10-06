@@ -31,6 +31,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/community_pending_requests_box.h"
 #include "boxes/peers/edit_peer_requests_box.h"
 #include "boxes/choose_filter_box.h"
+#include "boxes/peer_list_controllers.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/chat_filters_tabs_strip.h"
@@ -76,6 +77,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_domain.h"
 #include "data/components/recent_peers.h"
 #include "lunagram/chat_vault.h"
+#include "lunagram/design.h"
+#include "lunagram/lunagram_settings.h"
+#include "lunagram/navigation.h"
+#include "lunagram/window_chrome.h"
 #include "data/components/sponsored_messages.h"
 #include "data/data_session.h"
 #include "data/data_channel.h"
@@ -97,6 +102,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/info_memento.h"
 #include "inline_bots/bot_attach_web_view.h"
 #include "styles/style_dialogs.h"
+#include "styles/style_lunagram_design.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_dialogs_widget.h"
@@ -399,9 +405,9 @@ Widget::Widget(
 , _api(&controller->session().mtp())
 , _chooseByDragTimer([=] { _inner->chooseRow(); })
 , _layout(layout)
-, _narrowWidth(st::defaultDialogRow.padding.left()
-	+ st::defaultDialogRow.photoSize
-	+ st::defaultDialogRow.padding.left())
+, _narrowWidth(Row::DefaultSt().padding.left()
+	+ Row::DefaultSt().photoSize
+	+ Row::DefaultSt().padding.left())
 , _searchControls(this)
 , _mainMenu({
 	.toggle = object_ptr<Ui::IconButton>(
@@ -410,7 +416,12 @@ Widget::Widget(
 	.under = object_ptr<MenuUnderButton>(_searchControls),
 })
 , _searchForNarrowLayout(_searchControls, st::dialogsSearchForNarrowFilters)
-, _search(_searchControls, st::dialogsFilter, tr::lng_dlg_filter())
+, _search(
+	_searchControls,
+	Lunagram::ReferenceDesignEnabled()
+		? st::dialogsReferenceFilter
+		: st::dialogsFilter,
+	tr::lng_dlg_filter())
 , _chooseFromUser(
 	_searchControls,
 	object_ptr<Ui::IconButton>(this, st::dialogsSearchFrom))
@@ -449,6 +460,19 @@ Widget::Widget(
 			_childListPeerId.value(),
 			_childListShown.value(),
 			makeChildListShown)));
+	if (_layout == Layout::Main && Lunagram::ReferenceDesignEnabled()) {
+		_referenceCompose.create(this, st::lunagramReferenceNewChat);
+		_referenceCompose->setAccessibleName(tr::lng_menu_contacts(tr::now));
+		_referenceCompose->setClickedCallback([=] {
+			controller->show(PrepareContactsBox(controller));
+		});
+		_referenceCompose->show();
+		_navigation = base::make_unique_q<Lunagram::NavigationBar>(
+			this,
+			controller,
+			[=] { showChatsFromNavigation(); });
+		_navigation->show();
+	}
 	controller->activeChatsFilter(
 	) | rpl::on_next([=](FilterId id) {
 		switchToChatsFilter(id);
@@ -754,10 +778,12 @@ Widget::Widget(
 	setupTouchChatPreview();
 
 	const auto overscrollBg = [=] {
-		return anim::color(
-			st::dialogsBg,
-			st::dialogsBgOver,
-			_childListShown.current());
+		return Lunagram::ReferenceDesignEnabled()
+			? QColor(Qt::transparent)
+			: anim::color(
+				st::dialogsBg,
+				st::dialogsBgOver,
+				_childListShown.current());
 	};
 	_scroll->setOverscrollBg(overscrollBg());
 	style::PaletteChanged(
@@ -1474,8 +1500,8 @@ void Widget::updateCommunityAddChatButton() {
 		const auto buttonWidth = buttonHeight
 			+ st::communityAddChatNarrowAddedWidth;
 		const auto stripHeight = buttonHeight
-			+ st::defaultDialogRow.padding.top()
-			+ st::defaultDialogRow.padding.bottom();
+			+ Row::DefaultSt().padding.top()
+			+ Row::DefaultSt().padding.bottom();
 		if (!shown) {
 			raw->toggle(false, anim::type::instant);
 			narrowButton->hide();
@@ -1486,7 +1512,7 @@ void Widget::updateCommunityAddChatButton() {
 			raw->toggle(false, anim::type::instant);
 			narrowButton->moveToLeft(
 				(_scroll->width() - buttonWidth) / 2,
-				bottom + st::defaultDialogRow.padding.top());
+				bottom + Row::DefaultSt().padding.top());
 			narrowButton->show();
 		} else {
 			narrowButton->hide();
@@ -1696,10 +1722,6 @@ void Widget::setupMainMenuToggle() {
 	rpl::single(rpl::empty) | rpl::then(
 		controller()->filtersMenuChanged()
 	) | rpl::on_next([=] {
-		const auto filtersHidden = !controller()->filtersWidth();
-		_mainMenu.toggle->setVisible(filtersHidden);
-		_mainMenu.under->setVisible(filtersHidden);
-		_searchForNarrowLayout->setVisible(!filtersHidden);
 		updateControlsGeometry();
 	}, lifetime());
 
@@ -1787,7 +1809,7 @@ void Widget::setupStories() {
 		if (position.overscroll > 0
 			|| (position.value
 				> (_storiesExplicitExpandScrollTop
-					+ st::dialogsRowHeight))) {
+					+ Row::DefaultSt().height))) {
 			storiesToggleExplicitExpand(false);
 		}
 		updateLockUnlockPosition();
@@ -1956,6 +1978,14 @@ void Widget::updateControlsVisibility(bool fast) {
 	}
 	if (_updateTelegram) {
 		_updateTelegram->show();
+	}
+	if (_navigation) {
+		_navigation->setVisible(
+			width() >= st::dialogsReferenceNavigationMinimumWidth
+				&& !_showAnimation);
+	}
+	if (_referenceCompose) {
+		_referenceCompose->setVisible(referenceHeaderShown() && !_showAnimation);
 	}
 	_searchControls->setVisible(
 		!_openedFolder && !_openedForum && !_openedCommunity);
@@ -2964,6 +2994,12 @@ void Widget::startSlideAnimation(
 		QPixmap newContentCache,
 		Window::SlideDirection direction) {
 	_scroll->hide();
+	if (_navigation) {
+		_navigation->hide();
+	}
+	if (_referenceCompose) {
+		_referenceCompose->hide();
+	}
 	if (_stories) {
 		_stories->setToggledHidden(true, false);
 	}
@@ -4533,10 +4569,50 @@ void Widget::updateSearchFromVisibility(bool fast) {
 }
 
 void Widget::updateControlsGeometry() {
+	const auto referenceHeader = referenceHeaderShown();
+	const auto captionHeight = (_layout == Layout::Main
+		&& Lunagram::ReferenceDesignEnabled())
+		? st::lunagramWindowCaptionHeight
+		: 0;
+	if (_referenceCompose) {
+		_referenceCompose->setVisible(referenceHeader && !_showAnimation);
+		_referenceCompose->move(
+			width() - _referenceCompose->width(),
+			(captionHeight - _referenceCompose->height()) / 2);
+		_referenceCompose->raise();
+	}
+	if (captionHeight) {
+		const auto composeWidth = referenceHeader
+			? _referenceCompose->width()
+			: 0;
+		Lunagram::UpdateWindowChromeCaption(
+			controller(),
+			this,
+			QRect(0, 0, std::max(width() - composeWidth, 0), captionHeight));
+	}
+	const auto navigationAvailable = _navigation
+		&& (width() >= st::dialogsReferenceNavigationMinimumWidth)
+		&& (width() >= _narrowWidth);
+	const auto navigationHeight = navigationAvailable
+		? std::min(height(), st::lunagramNavigationHeight)
+		: 0;
+	if (_navigation) {
+		_navigation->setVisible(navigationAvailable && !_showAnimation);
+		_navigation->setGeometry(
+			0,
+			height() - navigationHeight,
+			width(),
+			navigationHeight);
+		_navigation->raise();
+	}
+	const auto filtersHidden = !controller()->filtersWidth();
+	_mainMenu.toggle->setVisible(filtersHidden && !referenceHeader);
+	_mainMenu.under->setVisible(filtersHidden && !referenceHeader);
+	_searchForNarrowLayout->setVisible(!filtersHidden);
 	if (width() < _narrowWidth) {
 		return;
 	}
-	auto filterAreaTop = 0;
+	const auto filterAreaTop = captionHeight;
 
 	const auto ratiow = anim::interpolate(
 		width(),
@@ -4547,12 +4623,15 @@ void Widget::updateControlsGeometry() {
 		? ((smallw - ratiow) / float64(smallw - _narrowWidth))
 		: 0.;
 
-	auto filterLeft = (controller()->filtersWidth()
-		? st::dialogsFilterSkip
-		: (st::dialogsFilterPadding.x() + _mainMenu.toggle->width()))
-		+ st::dialogsFilterPadding.x();
-	const auto filterRight = st::dialogsFilterSkip
-		+ st::dialogsFilterPadding.x();
+	auto filterLeft = referenceHeader
+		? st::dialogsReferenceSearchSide
+		: ((controller()->filtersWidth()
+			? st::dialogsFilterSkip
+			: (st::dialogsFilterPadding.x() + _mainMenu.toggle->width()))
+			+ st::dialogsFilterPadding.x());
+	const auto filterRight = referenceHeader
+		? st::dialogsReferenceSearchSide
+		: (st::dialogsFilterSkip + st::dialogsFilterPadding.x());
 	const auto filterWidth = std::max(ratiow, smallw)
 		- filterLeft
 		- filterRight;
@@ -4604,7 +4683,7 @@ void Widget::updateControlsGeometry() {
 	const auto expandedStoriesTop = filterAreaTop + filterAreaHeight;
 	const auto storiesHeight = 2 * st::dialogsStories.photoTop
 		+ st::dialogsStories.photo;
-	const auto added = (st::dialogsFilter.heightMin - storiesHeight) / 2;
+	const auto added = (_search->height() - storiesHeight) / 2;
 	if (_stories) {
 		const auto inFolderTitle = _openedFolder && _subsectionTopBar;
 		const auto storiesLeft = inFolderTitle
@@ -4613,7 +4692,7 @@ void Widget::updateControlsGeometry() {
 				- st::dialogsStories.photoLeft)
 			: (filterLeft + filterWidth);
 		_stories->setLayoutConstraints(
-			{ storiesLeft, filterTop + added },
+			{ storiesLeft, filterAreaTop + filterTop + added },
 			inFolderTitle ? style::al_left : style::al_right,
 			{ 0, expandedStoriesTop, barw, st::dialogsStoriesFull.height });
 	}
@@ -4627,7 +4706,7 @@ void Widget::updateControlsGeometry() {
 
 	updateLockUnlockPosition();
 
-	auto bottomSkip = 0;
+	auto bottomSkip = navigationHeight;
 	const auto putBottomButton = [&](auto &button) {
 		if (button && !button->isHidden()) {
 			const auto buttonHeight = button->height();
@@ -4711,7 +4790,9 @@ void Widget::updateControlsGeometry() {
 				&& !searchInPeer())
 				? (_chatFilters->height() * (1. - narrowRatio))
 				: 0);
-		const auto scrollHeight = height() - scrollTop - bottomSkip;
+		const auto scrollHeight = std::max(
+			height() - scrollTop - bottomSkip,
+			0);
 		const auto wasScrollHeight = _scroll->height();
 		_scroll->setGeometry(0, scrollTop, scrollWidth, scrollHeight);
 		if (_chatsFilterSlideCanvas) {
@@ -4728,7 +4809,7 @@ void Widget::updateControlsGeometry() {
 			0,
 			expandedStoriesTop,
 			scrollWidth,
-			height() - expandedStoriesTop - bottomSkip);
+			std::max(height() - expandedStoriesTop - bottomSkip, 0));
 	}
 
 	_inner->resize(scrollWidth, _inner->height());
@@ -4875,6 +4956,16 @@ void Widget::paintEvent(QPaintEvent *e) {
 		return;
 	}
 
+	const auto referencePanel = Lunagram::ReferenceDesignEnabled();
+	if (referencePanel && !_showAnimation) {
+		if (const auto theme = controller()->defaultChatTheme()) {
+			Window::SectionWidget::PaintBackground(
+				controller(),
+				theme.get(),
+				this,
+				e->rect());
+		}
+	}
 	Painter p(this);
 	QRect r(e->rect());
 	if (r != rect()) {
@@ -4884,10 +4975,36 @@ void Widget::paintEvent(QPaintEvent *e) {
 		_showAnimation->paintContents(p);
 		return;
 	}
-	const auto bg = anim::brush(
-		st::dialogsBg,
-		st::dialogsBgOver,
-		_childListShown.current());
+	if (referencePanel) {
+		Lunagram::PaintGlassPanel(
+			p,
+			rect(),
+			st::dialogsBg->c,
+			st::lunagramReferenceCardRadius);
+		if (_layout == Layout::Main) {
+			const auto titleWidth = std::max(
+				width() - 2 * st::dialogsReferenceCaptionTitleSide,
+				0);
+			p.setFont(st::semiboldFont);
+			p.setPen(st::dialogsNameFg);
+			p.drawText(
+				QRect(
+					st::dialogsReferenceCaptionTitleSide,
+					0,
+					titleWidth,
+					st::lunagramWindowCaptionHeight),
+				Qt::AlignCenter,
+				st::semiboldFont->elided(
+					tr::lng_recent_chats(tr::now),
+					titleWidth));
+		}
+	}
+	const auto bg = referencePanel
+		? QBrush(Qt::transparent)
+		: anim::brush(
+			st::dialogsBg,
+			st::dialogsBgOver,
+			_childListShown.current());
 	auto above = QRect(0, 0, width(), _scroll->y());
 	if (above.intersects(r)) {
 		p.fillRect(above.intersected(r), bg);
@@ -4930,6 +5047,32 @@ void Widget::cancelSearchRequest() {
 	session().api().request(base::take(_postsProcess.requestId)).cancel();
 	session().data().histories().cancelRequest(
 		base::take(_historiesRequest));
+}
+
+void Widget::showChatsFromNavigation() {
+	cancelSearch({ .forceFullCancel = true });
+	if (_openedForum || _childList) {
+		controller()->closeForum();
+	}
+	if (_openedFolder) {
+		controller()->closeFolder();
+	}
+	if (_openedCommunity) {
+		controller()->closeCommunity();
+	}
+	jumpToTop();
+	setInnerFocus();
+}
+
+bool Widget::referenceHeaderShown() const {
+	const auto minimumWidth = std::max(
+		st::dialogsReferenceNavigationMinimumWidth,
+		st::columnMinimalWidthLeft - _narrowWidth);
+	return _referenceCompose
+		&& (anim::interpolate(
+			width(),
+			_narrowWidth,
+			_childListShown.current()) >= minimumWidth);
 }
 
 PeerData *Widget::searchInPeer() const {

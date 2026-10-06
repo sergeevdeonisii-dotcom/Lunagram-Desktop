@@ -36,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/mime_type.h"
 #include "lunagram/chat_vault.h"
 #include "lunagram/composer.h"
+#include "lunagram/lunagram_settings.h"
 #include "history/view/history_view_draw_to_reply.h"
 #include "history/view/controls/history_view_rich_draft_preview.h"
 #include "ui/emoji_config.h"
@@ -305,22 +306,39 @@ HistoryWidget::HistoryWidget(
 , _unblock(
 	this,
 	tr::lng_unblock_button(tr::now).toUpper(),
-	st::historyUnblock)
+	Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceUnblock
+		: st::historyUnblock)
 , _botStart(
 	this,
 	tr::lng_bot_start(tr::now).toUpper(),
-	st::historyComposeButton)
+	Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceComposeButton
+		: st::historyComposeButton)
 , _joinChannel(
 	this,
 	tr::lng_profile_join_channel(tr::now).toUpper(),
-	st::historyComposeButton)
+	Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceComposeButton
+		: st::historyComposeButton)
 , _muteUnmute(
 	this,
 	tr::lng_channel_mute(tr::now).toUpper(),
-	st::historyComposeButton)
-, _reportMessages(this, QString(), st::historyComposeButton)
+	Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceComposeButton
+		: st::historyComposeButton)
+, _reportMessages(
+	this,
+	QString(),
+	Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceComposeButton
+		: st::historyComposeButton)
 , _attachToggle(this, st::historyAttach)
-, _tabbedSelectorToggle(this, st::historyAttachEmoji)
+, _tabbedSelectorToggle(
+	this,
+	Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceAttachEmoji
+		: st::historyAttachEmoji)
 , _botKeyboardShow(this, st::historyBotKeyboardShow)
 , _botKeyboardHide(this, st::historyBotKeyboardHide)
 , _botCommandStart(this, st::historyBotCommandStart)
@@ -332,7 +350,9 @@ HistoryWidget::HistoryWidget(
 , _forwardPanel(std::make_unique<ForwardPanel>([=] { updateField(); }))
 , _field(
 	this,
-	st::historyComposeField,
+	Lunagram::ReferenceDesignEnabled()
+		? st::lunagramReferenceComposeField
+		: st::historyComposeField,
 	Ui::InputField::Mode::MultiLine,
 	tr::lng_message_ph())
 , _richDraftPreview(std::make_unique<HistoryView::Controls::RichDraftPreview>(
@@ -581,7 +601,7 @@ HistoryWidget::HistoryWidget(
 		showPremiumToast(document);
 		return false;
 	});
-	InitMessageFieldFade(_field, st::historyComposeField.textBg);
+	InitMessageFieldFade(_field, _field->st().textBg);
 	Lunagram::InitComposerEffects(&session(), _field, [=] { updateField(); });
 
 	setupFastButtonMode();
@@ -2770,7 +2790,11 @@ void HistoryWidget::setupGiftToChannelButton() {
 		st::historyGiftToChannel);
 	_giftToChannel->setAccessibleName(tr::lng_gift_channel_title(tr::now));
 	widthValue() | rpl::on_next([=](int width) {
-		_giftToChannel->moveToRight(0, 0, width);
+		_giftToChannel->moveToRight(
+			0,
+			(_giftToChannel->parentWidget()->height()
+				- _giftToChannel->height()) / 2,
+			width);
 	}, _giftToChannel->lifetime());
 	_giftToChannel->setClickedCallback([=] {
 		Ui::ShowStarGiftBox(controller(), _peer);
@@ -2786,7 +2810,9 @@ void HistoryWidget::setupGiftToChannelButton() {
 			: nullptr;
 		if (newParent) {
 			_giftToChannel->setParent(newParent);
-			_giftToChannel->moveToRight(0, 0);
+			_giftToChannel->moveToRight(
+				0,
+				(newParent->height() - _giftToChannel->height()) / 2);
 			refreshGiftToChannelShown();
 		}
 	}, _giftToChannel->lifetime());
@@ -2798,7 +2824,11 @@ void HistoryWidget::setupDirectMessageButton() {
 		st::historyDirectMessage);
 		_directMessage->setAccessibleName(tr::lng_profile_direct_messages(tr::now));
 	widthValue() | rpl::on_next([=](int width) {
-		_directMessage->moveToLeft(0, 0, width);
+		_directMessage->moveToLeft(
+			0,
+			(_directMessage->parentWidget()->height()
+				- _directMessage->height()) / 2,
+			width);
 	}, _directMessage->lifetime());
 	_directMessage->setClickedCallback([=] {
 		if (const auto channel = _peer ? _peer->asChannel() : nullptr) {
@@ -2823,7 +2853,9 @@ void HistoryWidget::setupDirectMessageButton() {
 			: nullptr;
 		if (newParent) {
 			_directMessage->setParent(newParent);
-			_directMessage->moveToLeft(0, 0);
+			_directMessage->moveToLeft(
+				0,
+				(newParent->height() - _directMessage->height()) / 2);
 			refreshDirectMessageShown();
 		}
 	}, _directMessage->lifetime());
@@ -7491,7 +7523,11 @@ void HistoryWidget::moveFieldControls() {
 // (_attachDocument|_attachPhoto) _field (_ttlInfo) (_scheduled) (_giftToUser) (_silent|_cmdStart|_kbShow) (_toggleSuggestPost) (_kbHide|_tabbedSelectorToggle) _send
 // (_botStart|_unblock|_joinChannel|_muteUnmute|_reportMessages)
 
-	auto buttonsBottom = bottom - _attachToggle->height();
+	const auto buttonsBottom = Lunagram::ReferenceDesignEnabled()
+		? (bottom - st::historySendPadding
+			- (st::lunagramReferenceComposeField.heightMin
+				+ _attachToggle->height()) / 2)
+		: (bottom - _attachToggle->height());
 	auto left = st::historySendRight;
 	if (_botMenu.button) {
 		const auto skip = st::historyBotMenuSkip;
@@ -7623,7 +7659,9 @@ void HistoryWidget::updateFieldSize() {
 	}
 	[[maybe_unused]] const auto previewHeight = _richDraftPreview->resizeGetHeight(
 		fieldWidth,
-		st::historyComposeField.heightMin,
+		Lunagram::ReferenceDesignEnabled()
+			? st::lunagramReferenceComposeField.heightMin
+			: st::historyComposeField.heightMin,
 		computeMaxFieldHeight());
 	moveFieldControls();
 }
@@ -11221,10 +11259,12 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	}
 	p.setInactive(
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+	const auto background = myrtlrect(0, backy, width(), backh);
 	Lunagram::PaintComposerBackground(
 		p,
-		myrtlrect(0, backy, width(), backh),
-		&session());
+		background,
+		&session(),
+		!Lunagram::ReferenceDesignEnabled());
 
 	const auto media = (!_previewDrawPreview && drawMsgText)
 		? drawMsgText->media()
@@ -11505,6 +11545,24 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 
 	Painter p(this);
 	const auto clip = e->rect();
+	if (Lunagram::ReferenceDesignEnabled()) {
+		for (const auto button : {
+			_botStart.data(),
+			_unblock.data(),
+			_joinChannel.data(),
+			_muteUnmute.data(),
+			_reportMessages.data(),
+		}) {
+			if (!button->isHidden()) {
+				Lunagram::PaintComposerBackground(
+					p,
+					button->geometry(),
+					&session(),
+					false);
+				break;
+			}
+		}
+	}
 	if (_list) {
 		const auto restrictionHidden = fieldOrDisabledShown()
 			|| isRecording();

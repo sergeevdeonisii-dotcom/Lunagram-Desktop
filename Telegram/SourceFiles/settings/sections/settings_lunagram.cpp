@@ -1,6 +1,8 @@
 #include "settings/sections/settings_lunagram.h"
 
 #include "base/weak_ptr.h"
+#include "core/application.h"
+#include "core/core_settings.h"
 #include "lang/lang_keys.h"
 #include "lunagram/chat_vault.h"
 #include "lunagram/local_tools.h"
@@ -258,6 +260,16 @@ void BuildContent(Page page, SectionBuilder &builder) {
 	builder.addSkip();
 	if (page == Page::General) {
 		builder.addSubsectionTitle(tr::lng_lunagram_appearance());
+		Action(builder, u"lunagram/theme-liquid"_q, tr::lng_lunagram_theme_liquid, [](auto controller) {
+			if (Window::Theme::Apply(u":/lunagram/themes/liquid.tdesktop-theme"_q)) {
+				Window::Theme::KeepApplied();
+				Core::App().settings().setChatFiltersHorizontal(true);
+				Core::App().saveSettingsDelayed();
+			} else {
+				controller->showToast(tr::lng_lunagram_theme_failed(tr::now));
+			}
+		});
+		builder.addDividerText(tr::lng_lunagram_reference_design_description());
 		Toggle(builder, u"lunagram/glass"_q, tr::lng_lunagram_glass, Flag::Glass);
 		Select(builder, "glass_opacity", tr::lng_lunagram_glass_opacity, 75,
 			{ { 35, u"35%"_q }, { 50, u"50%"_q }, { 75, u"75%"_q }, { 95, u"95%"_q } });

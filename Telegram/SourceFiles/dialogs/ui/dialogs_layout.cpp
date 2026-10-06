@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_send_action.h"
 #include "lang/lang_keys.h"
 #include "lottie/lottie_icon.h"
+#include "lunagram/lunagram_settings.h"
 #include "main/main_session.h"
 #include "storage/localstorage.h"
 #include "support/support_helper.h"
@@ -50,6 +51,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_dialogs_layout.h"
 #include "styles/style_widgets.h"
 #include "styles/style_window.h"
+
+#include <QtGui/QPainterPath>
 
 namespace Dialogs::Ui {
 
@@ -465,11 +468,6 @@ void PaintRow(
 	const auto thread = entry->asThread();
 	const auto sublist = entry->asSublist();
 
-	auto bg = context.active
-		? st::dialogsBgActive
-		: context.selected
-		? st::dialogsBgOver
-		: context.currentBg;
 	auto swipeTranslation = 0.;
 	auto swipeMirrored = false;
 	if (history
@@ -484,13 +482,12 @@ void PaintRow(
 	if (swipeTranslation) {
 		p.translate(swipeMirrored ? swipeTranslation : -swipeTranslation, 0);
 	}
-	p.fillRect(geometry, bg);
-	if (!(flags & Flag::TopicJumpRipple)) {
-		auto ripple = context.active
-			? st::dialogsRippleBgActive
-			: st::dialogsRippleBg;
-		row->paintRipple(p, 0, 0, context.width, &ripple->c);
-	}
+	PaintRowBackground(
+		p,
+		*row,
+		geometry,
+		context,
+		!(flags & Flag::TopicJumpRipple));
 
 	if (flags & Flag::SavedMessages) {
 		EmptyUserpic::PaintSavedMessages(
@@ -1085,9 +1082,71 @@ void PaintRow(
 
 const style::icon *ChatTypeIcon(not_null<PeerData*> peer) {
 	return ChatTypeIcon(peer, {
-		.st = &st::defaultDialogRow,
+		.st = &Row::DefaultSt(),
 		.currentBg = st::windowBg,
 	});
+}
+
+void PaintRowBackground(
+		Painter &p,
+		const BasicRow &row,
+		QRect geometry,
+		const PaintContext &context,
+		bool paintRipple) {
+	const auto bg = context.active
+		? st::dialogsBgActive
+		: context.selected
+		? st::dialogsBgOver
+		: context.currentBg;
+	const auto rounded = Lunagram::ReferenceDesignEnabled()
+		&& !context.quickActionContext
+		&& !context.insideCommunity;
+	p.save();
+	if (rounded) {
+		p.fillRect(geometry, context.currentBg);
+		const auto inset = std::min(
+			st::dialogsReferenceRowInset,
+			geometry.width() / 2);
+		const auto inner = geometry.adjusted(inset, 0, -inset, 0);
+		const auto radius = std::min({
+			st::dialogsReferenceRowRadius,
+			inner.width() / 2,
+			inner.height() / 2,
+		});
+		auto path = QPainterPath();
+		path.addRoundedRect(inner, radius, radius);
+		{
+			auto hq = PainterHighQualityEnabler(p);
+			p.fillPath(path, bg);
+		}
+		p.setClipPath(path, Qt::IntersectClip);
+	} else {
+		p.fillRect(geometry, bg);
+	}
+	if (paintRipple) {
+		const auto ripple = context.active
+			? st::dialogsRippleBgActive
+			: st::dialogsRippleBg;
+		row.paintRipple(p, 0, 0, context.width, &ripple->c);
+	}
+	p.restore();
+	if (rounded && !context.narrow && !context.active && !context.selected) {
+		p.save();
+		p.setOpacity(p.opacity() * st::dialogsReferenceSeparatorOpacity);
+		p.fillRect(
+			rtlrect(
+				geometry.x() + context.st->nameLeft,
+				geometry.y() + geometry.height() - st::lineWidth,
+				std::max(
+					geometry.width()
+						- context.st->nameLeft
+						- context.st->padding.right(),
+					0),
+				st::lineWidth,
+				context.width),
+			st::dialogsNameFg);
+		p.restore();
+	}
 }
 
 const style::icon *ChatTypeIcon(

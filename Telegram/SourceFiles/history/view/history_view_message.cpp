@@ -56,6 +56,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_forum_topic.h"
 #include "data/data_message_reactions.h"
 #include "lang/lang_keys.h"
+#include "lunagram/lunagram_settings.h"
 #include "mainwidget.h"
 #include "main/main_session.h"
 #include "settings/sections/settings_premium.h"
@@ -6522,12 +6523,14 @@ QRect Message::countGeometry() const {
 }
 
 Ui::BubbleRounding Message::countMessageRounding() const {
-	const auto smallTop = isBubbleAttachedToPrevious();
-	const auto smallBottom = isBubbleAttachedToNext();
+	const auto reference = Lunagram::ReferenceDesignEnabled();
+	const auto smallTop = !reference && isBubbleAttachedToPrevious();
+	const auto smallBottom = !reference && isBubbleAttachedToNext();
 	const auto media = smallBottom ? nullptr : this->media();
 	const auto item = data();
 	const auto keyboard = item->inlineReplyKeyboard();
-	const auto skipTail = smallBottom
+	const auto skipTail = reference
+		|| smallBottom
 		|| (media && media->skipBubbleTail())
 		|| (keyboard != nullptr)
 		|| item->isFakeAboutView()
@@ -6805,6 +6808,9 @@ int Message::resizeContentGetHeight(int newWidth) {
 			checkHeavyPart();
 		}
 		newHeight += viewButtonHeight();
+		if (Lunagram::ReferenceDesignEnabled()) {
+			accumulate_max(newHeight, 2 * st::lunagramReferenceBubbleRadius);
+		}
 	} else if (mediaDisplayed) {
 		newHeight = media->height();
 	} else {

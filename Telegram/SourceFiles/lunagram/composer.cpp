@@ -1,6 +1,7 @@
 #include "lunagram/composer.h"
 
 #include "lang/lang_keys.h"
+#include "lunagram/design.h"
 #include "lunagram/lunagram_settings.h"
 #include "main/main_session.h"
 #include "ui/effects/animations.h"
@@ -17,6 +18,7 @@
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_layers.h"
+#include "styles/style_lunagram_design.h"
 #include "styles/style_widgets.h"
 
 namespace Lunagram {
@@ -218,6 +220,14 @@ void PaintComposerBackground(
 		const QRect &bounds,
 		not_null<Main::Session*> session,
 		bool fillBackground) {
+	if (ReferenceDesignEnabled()) {
+		const auto padding = st::historySendPadding;
+		PaintGlassPanel(
+			p,
+			bounds.adjusted(padding, padding, -padding, -padding),
+			st::boxBg->c);
+		return;
+	}
 	if (fillBackground) {
 		p.fillRect(bounds, st::historyReplyBg->c);
 	}

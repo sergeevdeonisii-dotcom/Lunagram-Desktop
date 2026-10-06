@@ -38,6 +38,13 @@ void Notify(not_null<Main::Session*> session) {
 
 } // namespace
 
+bool ReferenceDesignEnabled() {
+	static const auto result = Core::App().settings().readPref<bool>(
+		"lunagram/reference_design",
+		true);
+	return result;
+}
+
 bool Enabled(not_null<Main::Session*> session, Flag flag) {
 	const auto fallback = (flag == Flag::RecordEdits || flag == Flag::Glass);
 	return Core::App().settings().readPref<bool>(

@@ -34,6 +34,10 @@ namespace Main {
 class Session;
 } // namespace Main
 
+namespace Lunagram {
+class NavigationBar;
+} // namespace Lunagram
+
 namespace HistoryView {
 class TopBarWidget;
 class ContactStatus;
@@ -201,6 +205,8 @@ private:
 	void escape();
 	void submit();
 	void cancelSearchRequest();
+	void showChatsFromNavigation();
+	[[nodiscard]] bool referenceHeaderShown() const;
 	[[nodiscard]] PeerData *searchInPeer() const;
 	[[nodiscard]] Data::ForumTopic *searchInTopic() const;
 	[[nodiscard]] PeerData *searchFromPeer() const;
@@ -338,6 +344,7 @@ private:
 		object_ptr<Ui::IconButton> toggle;
 		object_ptr<Ui::AbstractButton> under;
 	} _mainMenu;
+	object_ptr<Ui::IconButton> _referenceCompose = { nullptr };
 	object_ptr<Ui::IconButton> _searchForNarrowLayout;
 	object_ptr<Ui::InputField> _search;
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _chooseFromUser;
@@ -379,6 +386,7 @@ private:
 	object_ptr<BottomButton> _updateTelegram = { nullptr };
 	object_ptr<BottomButton> _loadMoreChats = { nullptr };
 	std::unique_ptr<Ui::DownloadBar> _downloadBar;
+	base::unique_qptr<Lunagram::NavigationBar> _navigation;
 	std::unique_ptr<Window::ConnectionState> _connecting;
 
 	Ui::Animations::Simple _scrollToAnimation;

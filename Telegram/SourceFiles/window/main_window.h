@@ -27,6 +27,10 @@ struct WindowPosition;
 enum class QuitReason;
 } // namespace Core
 
+namespace Lunagram {
+class WindowChrome;
+} // namespace Lunagram
+
 namespace Window {
 
 class Controller;
@@ -129,6 +133,10 @@ public:
 
 	virtual void updateWindowIcon() = 0;
 	void updateTitle();
+	void setReferenceCaptionArea(
+		not_null<SessionController*> controller,
+		not_null<QWidget*> source,
+		QRect area);
 
 	void clearWidgets();
 
@@ -195,6 +203,7 @@ protected:
 
 private:
 	void refreshTitleWidget();
+	void queueReferenceChromeUpdate();
 	void setupCanaryTitleLabel();
 	[[nodiscard]] QString nativeTitleSuffix() const;
 	void updateMinimumSize();
@@ -213,12 +222,14 @@ private:
 	bool _positionInited = false;
 
 	object_ptr<Ui::PlainShadow> _titleShadow = { nullptr };
+	object_ptr<Lunagram::WindowChrome> _windowChrome = { nullptr };
 	object_ptr<Ui::RpWidget> _outdated;
 	object_ptr<Ui::RpWidget> _screenReaderBar;
 	object_ptr<Ui::RpWidget> _body;
 	object_ptr<Ui::RpWidget> _rightColumn = { nullptr };
 
 	bool _isActive = false;
+	bool _referenceChromeUpdateScheduled = false;
 
 	rpl::event_stream<> _leaveEvents;
 	rpl::event_stream<> _imeCompositionStartReceived;

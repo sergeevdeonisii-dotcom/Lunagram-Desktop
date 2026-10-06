@@ -100,6 +100,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/iv_rich_page.h"
 #include "lang/lang_keys.h"
 #include "lunagram/composer.h"
+#include "lunagram/lunagram_settings.h"
 #include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -406,7 +407,9 @@ void FieldHeader::init() {
 	) | rpl::on_next([=] {
 		Painter p(this);
 		p.setInactive(_show->paused(Window::GifPauseReason::Any));
-		p.fillRect(rect(), st::historyComposeAreaBg);
+		if (!Lunagram::ReferenceDesignEnabled()) {
+			p.fillRect(rect(), st::historyComposeAreaBg);
+		}
 
 		const auto position = st::historyReplyIconPosition;
 		if (_suggestOptions) {
@@ -1204,6 +1207,8 @@ ComposeControls::ComposeControls(
 	ComposeControlsDescriptor descriptor)
 : _st(descriptor.stOverride
 	? *descriptor.stOverride
+	: Lunagram::ReferenceDesignEnabled()
+	? st::lunagramReferenceComposeControls
 	: st::defaultComposeControls)
 , _features(descriptor.features)
 , _parent(parent)
@@ -4951,7 +4956,10 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		}
 	}
 
-	const auto buttonsTop = size.height() - _st.attach.height;
+	const auto buttonsTop = (&_st == &st::lunagramReferenceComposeControls)
+		? (size.height() - _st.padding.bottom()
+			- (_st.field.heightMin + _st.attach.height) / 2)
+		: (size.height() - _st.attach.height);
 
 	auto left = 0;
 	if (commentsShown) {
@@ -5629,7 +5637,10 @@ void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
 	} else {
 		p.fillRect(clip, _st.bg);
 	}
-	Lunagram::PaintComposerBackground(p, full, &session(), false);
+	if (&_st == &st::lunagramReferenceComposeControls
+		|| !Lunagram::ReferenceDesignEnabled()) {
+		Lunagram::PaintComposerBackground(p, full, &session(), false);
+	}
 }
 
 void ComposeControls::escape() {

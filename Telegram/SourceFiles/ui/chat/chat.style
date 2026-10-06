@@ -323,6 +323,7 @@ historyInfoToastIcon: icon {{ "toast/info", toastFg }};
 
 bubbleRadiusSmall: roundRadiusLarge;
 bubbleRadiusLarge: 16px;
+lunagramReferenceBubbleRadius: 18px;
 
 historyPhotoLeft: 14px;
 historyPhotoBubbleMinWidth: 200px;

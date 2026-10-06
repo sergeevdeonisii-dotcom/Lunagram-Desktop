@@ -1042,6 +1042,12 @@ historyComposeButton: FlatButton {
 		color: historyComposeButtonBgRipple;
 	}
 }
+lunagramReferenceComposeButton: FlatButton(historyComposeButton) {
+	bgColor: transparent;
+	overBgColor: transparent;
+	height: 58px;
+	textTop: 20px;
+}
 historyGiftToChannel: IconButton(defaultIconButton) {
 	width: 46px;
 	height: 46px;
@@ -1058,6 +1064,10 @@ historyDirectMessage: IconButton(historyGiftToChannel) {
 	iconOver: icon{{ "menu/chat_discuss", windowActiveTextFg }};
 }
 historyUnblock: FlatButton(historyComposeButton) {
+	color: attentionButtonFg;
+	overColor: attentionButtonFgOver;
+}
+lunagramReferenceUnblock: FlatButton(lunagramReferenceComposeButton) {
 	color: attentionButtonFg;
 	overColor: attentionButtonFgOver;
 }
@@ -1296,6 +1306,17 @@ historyComposeField: InputField(defaultInputField) {
 	borderActive: 0px;
 	duration: 100;
 }
+lunagramReferenceComposeField: InputField(historyComposeField) {
+	textBg: transparent;
+	textBgActive: transparent;
+	textMargins: margins(14px, 8px, 14px, 8px);
+	heightMin: 40px;
+	placeholderMargins: margins(0px, 0px, 0px, 0px);
+	placeholderFgActive: placeholderFg;
+	borderRadius: 20px;
+	borderFg: transparent;
+	borderFgActive: transparent;
+}
 historyComposeFieldMaxHeight: 224px;
 historyComposeFieldFadeHeight: 6px;
 historySendRight: 2px;
@@ -1387,6 +1408,9 @@ historyAttachEmoji: EmojiButton {
 	bg: historyComposeAreaBg;
 	lineFg: historyEmojiCircleFg;
 	lineFgOver: historyEmojiCircleFgOver;
+}
+lunagramReferenceAttachEmoji: EmojiButton(historyAttachEmoji) {
+	bg: transparent;
 }
 boxAttachEmoji: EmojiButton(historyAttachEmoji) {
 	bg: transparent;
@@ -1641,6 +1665,11 @@ defaultComposeControls: ComposeControls {
 	boxField: defaultInputField;
 	restrictionLabel: defaultRestrictionLabel;
 	chooseSendAs: defaultChooseSendAs;
+}
+lunagramReferenceComposeControls: ComposeControls(defaultComposeControls) {
+	bg: transparent;
+	field: lunagramReferenceComposeField;
+	emoji: lunagramReferenceAttachEmoji;
 }
 
 moreChatsBarHeight: 48px;

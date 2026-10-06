@@ -65,6 +65,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/options.h"
 #include "lang/lang_keys.h"
 #include "lunagram/chat_vault.h"
+#include "lunagram/lunagram_settings.h"
 #include "lottie/lottie_icon.h"
 #include "settings/settings_common.h"
 #include "storage/storage_account.h"
@@ -302,16 +303,18 @@ InnerWidget::InnerWidget(
 : RpWidget(parent)
 , _controller(controller)
 , _shownList(controller->session().data().chatsList()->indexed())
-, _st(&st::defaultDialogRow)
+, _st(&Row::DefaultSt())
 , _pinnedShiftAnimation([=](crl::time now) {
 	return pinnedShiftAnimationCallback(now);
 })
-, _narrowWidth(st::defaultDialogRow.padding.left()
-	+ st::defaultDialogRow.photoSize
-	+ st::defaultDialogRow.padding.left())
+, _narrowWidth(Row::DefaultSt().padding.left()
+	+ Row::DefaultSt().photoSize
+	+ Row::DefaultSt().padding.left())
 , _childListShown(std::move(childListShown))
 , _freezeTimer([=] { _shownList->unfreeze(); update(); }) {
-	setAttribute(Qt::WA_OpaquePaintEvent, true);
+	setAttribute(
+		Qt::WA_OpaquePaintEvent,
+		!Lunagram::ReferenceDesignEnabled());
 	setAccessibleName(tr::lng_recent_chats(tr::now));
 	Lunagram::VaultChanges(&session()) | rpl::on_next([=] {
 		_menu = nullptr;
@@ -789,7 +792,7 @@ int InnerWidget::searchInChatSkip() const {
 int InnerWidget::previewOffset() const {
 	auto result = peerSearchOffset();
 	if (!_peerSearchResults.empty()) {
-		result += (_peerSearchResults.size() * st::dialogsRowHeight)
+		result += (_peerSearchResults.size() * Row::DefaultSt().height)
 			+ st::searchedBarHeight;
 	}
 	return result;
@@ -798,7 +801,7 @@ int InnerWidget::previewOffset() const {
 int InnerWidget::searchedOffset() const {
 	auto result = previewOffset();
 	if (!_previewResults.empty()) {
-		result += (_previewResults.size() * st::dialogsRowHeight)
+		result += (_previewResults.size() * Row::DefaultSt().height)
 			+ st::searchedBarHeight;
 	}
 	return result;
@@ -881,7 +884,7 @@ void InnerWidget::changeOpenedForum(Data::Forum *forum) {
 		session().data().forumIcons().scheduleUserpicsReset(_openedForum);
 	}
 	_openedForum = forum;
-	_st = forum ? &st::forumTopicRow : &st::defaultDialogRow;
+	_st = forum ? &Row::TopicSt() : &Row::DefaultSt();
 	refreshShownList();
 	if (!forum && _openedCommunity) {
 		rebuildCommunitySections();
@@ -991,7 +994,7 @@ void InnerWidget::showSavedSublists() {
 
 	_filterId = 0;
 	_openedForum = nullptr;
-	_st = &st::defaultDialogRow;
+	_st = &Row::DefaultSt();
 	refreshShownList();
 
 	_openedForumLifetime.destroy();
@@ -1084,7 +1087,9 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 			}
 		}
 
-		context.st = (forum || monoforum) ? &st::forumDialogRow : _st.get();
+		context.st = (forum || monoforum)
+			? &Row::ComputeSt(row->entry(), context.filter)
+			: _st.get();
 
 		const auto videoUserpic = validateVideoUserpic(row);
 		const auto cacheRatio = style::DevicePixelRatio();
@@ -1125,9 +1130,7 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 			context.chatsFilterTags = nullptr;
 		} else if (row->entry()->hasChatsFilterTags(context.filter)) {
 			const auto a = active;
-			context.st = (forum || monoforum)
-				? &st::taggedForumDialogRow
-				: &st::taggedDialogRow;
+			context.st = &Row::ComputeSt(row->entry(), context.filter);
 			auto availableWidth = context.width
 				- context.st->padding.right()
 				- st::dialogsUnreadPadding
@@ -1207,6 +1210,13 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 				cacheSize,
 				cacheRatio,
 				[&](QImage &image) {
+					if (Lunagram::ReferenceDesignEnabled()) {
+						image = QImage(
+							cacheSize,
+							QImage::Format_ARGB32_Premultiplied);
+						image.setDevicePixelRatio(cacheRatio);
+						image.fill(Qt::transparent);
+					}
 					if (view) {
 						view->resetLastPaintGeometry();
 					}
@@ -1224,7 +1234,17 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 							row->userpicView())
 						: std::pair<uint64, uint64>();
 					if (!cached.badge.isEmpty()) {
-						q.fillRect(cached.badge, st::dialogsBg);
+						q.save();
+						q.setCompositionMode(QPainter::CompositionMode_Source);
+						q.fillRect(cached.badge, currentBg());
+						q.restore();
+					}
+					if (Lunagram::ReferenceDesignEnabled()
+						&& !cached.preview.isEmpty()) {
+						q.save();
+						q.setCompositionMode(QPainter::CompositionMode_Source);
+						q.fillRect(cached.preview, Qt::transparent);
+						q.restore();
 					}
 					_cachedRows[cacheKey] = std::move(cached);
 				});
@@ -1422,10 +1442,10 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 				_hashtagResults.size());
 			p.translate(0, from * st::mentionHeight);
 			if (from < _hashtagResults.size()) {
-				const auto htagleft = st::defaultDialogRow.padding.left();
+				const auto htagleft = Row::DefaultSt().padding.left();
 				auto htagwidth = fullWidth
 					- htagleft
-					- st::defaultDialogRow.padding.right();
+					- Row::DefaultSt().padding.right();
 
 				p.setFont(st::mentionFont);
 				for (; from < to; ++from) {
@@ -1496,16 +1516,16 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 			auto [from, to] = Ui::RowsInRange(
 				r.y() - skip,
 				r.y() + r.height() - skip,
-				st::dialogsRowHeight,
+				Row::DefaultSt().height,
 				_peerSearchResults.size());
-			p.translate(0, from * st::dialogsRowHeight);
+			p.translate(0, from * Row::DefaultSt().height);
 			if (from < _peerSearchResults.size()) {
 				const auto activePeer = activeEntry.key.peer();
 				for (; from < to; ++from) {
 					const auto &result = _peerSearchResults[from];
 					if (result->sponsored
-						&& r.y() <= (skip + from * st::dialogsRowHeight)
-						&& r.y() + r.height() >= (skip + (from + 1) * st::dialogsRowHeight)) {
+						&& r.y() <= (skip + from * Row::DefaultSt().height)
+						&& r.y() + r.height() >= (skip + (from + 1) * Row::DefaultSt().height)) {
 						session().sponsoredMessages().view(
 							result->sponsored->data.randomId);
 					}
@@ -1533,7 +1553,7 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 						.rightButton = (result->sponsored
 							? &result->sponsored->button
 							: nullptr),
-						.st = &st::defaultDialogRow,
+						.st = &Row::DefaultSt(),
 						.currentBg = currentBg(),
 						.now = ms,
 						.width = fullWidth,
@@ -1541,10 +1561,10 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 						.selected = selected,
 						.paused = videoPaused,
 					});
-					p.translate(0, st::dialogsRowHeight);
+					p.translate(0, Row::DefaultSt().height);
 				}
 				if (to < _peerSearchResults.size()) {
-					p.translate(0, (_peerSearchResults.size() - to) * st::dialogsRowHeight);
+					p.translate(0, (_peerSearchResults.size() - to) * Row::DefaultSt().height);
 				}
 			}
 		}
@@ -1863,17 +1883,17 @@ void InnerWidget::paintPeerSearchResult(
 		Painter &p,
 		not_null<const PeerSearchResult*> result,
 		const Ui::PaintContext &context) {
-	QRect fullRect(0, 0, context.width, st::dialogsRowHeight);
-	p.fillRect(
+	const auto fullRect = QRect(
+		0,
+		0,
+		context.width,
+		Row::DefaultSt().height);
+	Ui::PaintRowBackground(
+		p,
+		result->row,
 		fullRect,
-		(context.active
-			? st::dialogsBgActive
-			: context.selected
-			? st::dialogsBgOver
-			: currentBg()));
-	if (!context.active) {
-		result->row.paintRipple(p, 0, 0, context.width);
-	}
+		context,
+		!context.active);
 
 	auto peer = result->peer;
 	auto userpicPeer = (peer->migrateTo() ? peer->migrateTo() : peer);
@@ -1980,10 +2000,12 @@ void InnerWidget::paintPeerSearchResult(
 }
 
 QBrush InnerWidget::currentBg() const {
-	return anim::brush(
-		st::dialogsBg,
-		st::dialogsBgOver,
-		_childListShown.current().shown);
+	return Lunagram::ReferenceDesignEnabled()
+		? QBrush(Qt::transparent)
+		: anim::brush(
+			st::dialogsBg,
+			st::dialogsBgOver,
+			_childListShown.current().shown);
 }
 
 void InnerWidget::paintSearchTags(
@@ -2002,7 +2024,7 @@ void InnerWidget::showPeerMenu() {
 	if (!_selected) {
 		return;
 	}
-	const auto &padding = st::defaultDialogRow.padding;
+	const auto &padding = Row::DefaultSt().padding;
 	const auto pos = QPoint(
 		width() - padding.right(),
 		_selected->top() + _selected->height() + padding.bottom());
@@ -2108,7 +2130,7 @@ void InnerWidget::performDrag() {
 			('@' + u).toUtf8());
 	}
 
-	const auto &st = st::defaultDialogRow;
+	const auto &st = Row::DefaultSt();
 	auto pixmap = QPixmap(Size(st.height * style::DevicePixelRatio()));
 	pixmap.setDevicePixelRatio(style::DevicePixelRatio());
 	pixmap.fill(Qt::transparent);
@@ -2337,12 +2359,12 @@ void InnerWidget::selectByMouse(QPoint globalPosition) {
 		}
 		if (!_peerSearchResults.empty()) {
 			const auto skip = peerSearchOffset();
-			auto peerSearchSelected = (mouseY >= skip) ? ((mouseY - skip) / st::dialogsRowHeight) : -1;
+			auto peerSearchSelected = (mouseY >= skip) ? ((mouseY - skip) / Row::DefaultSt().height) : -1;
 			if (peerSearchSelected < 0 || peerSearchSelected >= _peerSearchResults.size()) {
 				peerSearchSelected = -1;
 			}
 			const auto mappedY = (peerSearchSelected >= 0)
-				? mouseY - skip - (peerSearchSelected * st::dialogsRowHeight)
+				? mouseY - skip - (peerSearchSelected * Row::DefaultSt().height)
 				: 0;
 			const auto selectedRightButton = (peerSearchSelected >= 0)
 				? (_peerSearchResults[peerSearchSelected]->sponsored
@@ -2543,7 +2565,7 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 		auto &result = _peerSearchResults[_peerSearchPressed];
 		const auto row = &result->row;
 		const auto origin = e->pos()
-			- QPoint(0, peerSearchOffset() + _peerSearchPressed * st::dialogsRowHeight);
+			- QPoint(0, peerSearchOffset() + _peerSearchPressed * Row::DefaultSt().height);
 		const auto updateCallback = [this, peer = result->peer] {
 			updateSearchResult(peer);
 		};
@@ -2551,7 +2573,7 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 		} else {
 			row->addRipple(
 				origin,
-				QSize(width(), st::dialogsRowHeight),
+				QSize(width(), Row::DefaultSt().height),
 				updateCallback);
 		}
 	} else if (base::in_range(_searchedPressed, 0, _searchResults.size())) {
@@ -3495,9 +3517,9 @@ void InnerWidget::updateSearchResult(not_null<PeerData*> peer) {
 			const auto index = (i - begin(_peerSearchResults));
 			rtlupdate(
 				0,
-				top + index * st::dialogsRowHeight,
+				top + index * Row::DefaultSt().height,
 				width(),
-				st::dialogsRowHeight);
+				Row::DefaultSt().height);
 		}
 	}
 }
@@ -3563,7 +3585,7 @@ void InnerWidget::updateDialogRow(
 		if ((sections & UpdateRowSection::PeerSearch)
 			&& !_peerSearchResults.empty()) {
 			if (const auto peer = row.key.peer()) {
-				const auto rowHeight = st::dialogsRowHeight;
+				const auto rowHeight = Row::DefaultSt().height;
 				auto index = 0;
 				for (const auto &result : _peerSearchResults) {
 					if (result->peer == peer) {
@@ -3745,13 +3767,19 @@ void InnerWidget::paintAnimatedPreview(
 		return;
 	}
 	if (cached.band.size() != size) {
-		cached.band = QImage(size, QImage::Format_RGB32);
+		cached.band = QImage(
+			size,
+			Lunagram::ReferenceDesignEnabled()
+				? QImage::Format_ARGB32_Premultiplied
+				: QImage::Format_RGB32);
 		cached.band.setDevicePixelRatio(ratio);
 		cached.bandDirty = true;
 	}
 	if (cached.bandDirty) {
 		cached.bandDirty = false;
-		cached.band.fill(st::dialogsBg->c);
+		cached.band.fill(Lunagram::ReferenceDesignEnabled()
+			? QColor(Qt::transparent)
+			: st::dialogsBg->c);
 		auto q = Painter(&cached.band);
 		q.setInactive(p.inactive());
 		q.translate(-geometry.topLeft());
@@ -3809,7 +3837,7 @@ void InnerWidget::updateSelectedRow(Key key) {
 				update(0, filteredOffset() + result.top, width(), result.row->height());
 			}
 		} else if (_peerSearchSelected >= 0) {
-			update(0, peerSearchOffset() + _peerSearchSelected * st::dialogsRowHeight, width(), st::dialogsRowHeight);
+			update(0, peerSearchOffset() + _peerSearchSelected * Row::DefaultSt().height, width(), Row::DefaultSt().height);
 		} else if (_previewSelected >= 0) {
 			update(0, previewOffset() + _previewSelected * _st->height, width(), _st->height);
 		} else if (_searchedSelected >= 0) {
@@ -5486,9 +5514,9 @@ void InnerWidget::scrollToFilteredSelected() {
 		scrollToItem(from, result.row->height());
 	} else if (base::in_range(_peerSearchSelected, 0, _peerSearchResults.size())) {
 		const auto from = peerSearchOffset()
-			+ _peerSearchSelected * st::dialogsRowHeight
+			+ _peerSearchSelected * Row::DefaultSt().height
 			+ (_peerSearchSelected ? 0 : -st::searchedBarHeight);
-		const auto height = st::dialogsRowHeight
+		const auto height = Row::DefaultSt().height
 			+ (_peerSearchSelected ? 0 : st::searchedBarHeight);
 		scrollToItem(from, height);
 	} else if (base::in_range(_previewSelected, 0, _previewResults.size())) {
@@ -5627,11 +5655,11 @@ void InnerWidget::preloadRowsData() {
 			}
 		}
 
-		from = (yFrom - peerSearchOffset()) / st::dialogsRowHeight;
+		from = (yFrom - peerSearchOffset()) / Row::DefaultSt().height;
 		if (from < 0) from = 0;
 		if (from < _peerSearchResults.size()) {
 			const auto to = std::min(
-				((yTo - peerSearchOffset()) / st::dialogsRowHeight) + 1,
+				((yTo - peerSearchOffset()) / Row::DefaultSt().height) + 1,
 				int(_peerSearchResults.size()));
 			for (; from < to; ++from) {
 				_peerSearchResults[from]->peer->loadUserpic();
@@ -6174,16 +6202,16 @@ void InnerWidget::repaintDialogRowCornerStatus(not_null<History*> history) {
 	).marginsAdded(
 		{ stroke, stroke, stroke, stroke }
 	).translated(
-		st::defaultDialogRow.padding.left(),
-		st::defaultDialogRow.padding.top()
+		Row::DefaultSt().padding.left(),
+		Row::DefaultSt().padding.top()
 	);
 	const auto ttlUpdateRect = !history->peer->messagesTTL()
 		? QRect()
 		: Dialogs::CornerBadgeTTLRect(
 			_st->photoSize
 		).translated(
-			st::defaultDialogRow.padding.left(),
-			st::defaultDialogRow.padding.top()
+			Row::DefaultSt().padding.left(),
+			Row::DefaultSt().padding.top()
 		);
 	updateDialogRow(
 		RowDescriptor(
@@ -7050,9 +7078,9 @@ QRect InnerWidget::accessibilityChildRect(int index) const {
 		case AccessibilityCohort::PeerSearch:
 			return QRect(
 				0,
-				peerSearchOffset() + ref->local * st::dialogsRowHeight,
+				peerSearchOffset() + ref->local * Row::DefaultSt().height,
 				width(),
-				st::dialogsRowHeight);
+				Row::DefaultSt().height);
 		case AccessibilityCohort::Preview:
 			return QRect(
 				0,

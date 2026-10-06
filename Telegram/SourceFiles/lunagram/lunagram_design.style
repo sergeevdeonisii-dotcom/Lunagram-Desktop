@@ -1,0 +1,47 @@
+using "ui/basic.style";
+using "ui/widgets/widgets.style";
+using "ui/menu_icons.style";
+
+lunagramReferencePanelRadius: 20px;
+lunagramReferenceCardRadius: 24px;
+lunagramReferenceCardInset: 6px;
+lunagramReferencePanelInset: 5px;
+lunagramReferenceHeaderButtonDiameter: 38px;
+lunagramNavigationHeight: 52px;
+
+lunagramNavigationProfile: IconButton {
+	width: 40px;
+	height: 40px;
+	icon: menuIconProfile;
+	iconOver: menuIconProfile;
+	iconPosition: point(8px, 8px);
+	rippleAreaPosition: point(0px, 0px);
+	rippleAreaSize: 40px;
+	ripple: defaultRippleAnimationBgOver;
+}
+lunagramNavigationCalls: IconButton(lunagramNavigationProfile) {
+	icon: menuIconPhone;
+	iconOver: menuIconPhone;
+}
+lunagramNavigationChats: IconButton(lunagramNavigationProfile) {
+	icon: icon {{ "menu/chat_bubble", activeButtonBg }};
+	iconOver: icon {{ "menu/chat_bubble", activeButtonBg }};
+}
+lunagramNavigationSettings: IconButton(lunagramNavigationProfile) {
+	icon: menuIconSettings;
+	iconOver: menuIconSettings;
+}
+
+lunagramReferenceCaptionHeight: 30px;
+lunagramWindowCaptionHeight: lunagramReferenceCaptionHeight;
+lunagramTrafficLightRadius: 6px;
+lunagramTrafficLightHitSize: 20px;
+lunagramTrafficLightSpacing: 20px;
+lunagramTrafficLightLeft: 12px;
+lunagramTrafficLightTop: 15px;
+lunagramTrafficLightGlyphSize: 6px;
+lunagramTrafficLightGlyphWidth: 1px;
+lunagramReferenceWindowTitle: WindowTitle(defaultWindowTitle) {
+	height: 0px;
+	shadow: false;
+}

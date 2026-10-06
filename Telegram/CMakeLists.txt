@@ -117,6 +117,8 @@ PRIVATE
     lunagram/chat_vault.h
     lunagram/composer.cpp
     lunagram/composer.h
+    lunagram/design.cpp
+    lunagram/design.h
     lunagram/formatting.cpp
     lunagram/formatting.h
     lunagram/gifts_profile.cpp
@@ -125,12 +127,16 @@ PRIVATE
     lunagram/local_tools.h
     lunagram/lunagram_settings.cpp
     lunagram/lunagram_settings.h
+    lunagram/navigation.cpp
+    lunagram/navigation.h
     lunagram/message_history.cpp
     lunagram/message_history.h
     lunagram/private_codec.cpp
     lunagram/private_codec.h
     lunagram/secure_storage.cpp
     lunagram/secure_storage.h
+    lunagram/window_chrome.cpp
+    lunagram/window_chrome.h
 
     api/api_attached_stickers.cpp
     api/api_attached_stickers.h

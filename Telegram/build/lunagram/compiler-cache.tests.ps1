@@ -4,7 +4,7 @@ $errors = $null
 $helper = Join-Path $PSScriptRoot 'compiler-cache.ps1'
 $ast = [Management.Automation.Language.Parser]::ParseFile($helper, [ref] $tokens, [ref] $errors)
 if ($errors.Count) { throw 'Compiler cache helper has syntax errors.' }
-foreach ($name in @('Get-CacheChild', 'Get-CacheIdentity', 'Set-BuildEnvironment', 'Get-LocalCacheHits')) {
+foreach ($name in @('Get-CacheChild', 'Get-CacheIdentity', 'Set-BuildEnvironment', 'Get-LocalCacheHits', 'Test-GuardInput')) {
     $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     if (-not $definition) { throw "Missing cache helper: $name" }
     . ([ScriptBlock]::Create($definition.Extent.Text))
@@ -17,6 +17,16 @@ foreach ($name in @('..', '..\foreign', 'D:\foreign', '.')) {
     if (-not $rejected) { throw "Cache boundary accepted $name" }
 }
 $original = Get-CacheIdentity @('msvc', 'sdk', 'headers')
+foreach ($case in @{
+    'Telegram/SourceFiles/history/history_widget.cpp' = $false
+    'Telegram/SourceFiles/stdafx.h' = $true
+    'Telegram/SourceFiles/codegen/generator.cpp' = $true
+    'Telegram/lib_ui/codegen/style.cpp' = $true
+    'Telegram/SourceFiles/ui/chat.style' = $true
+    'Telegram/CMakeLists.txt' = $true
+}.GetEnumerator()) {
+    if ((Test-GuardInput $case.Key) -ne $case.Value) { throw "Unsafe header guard selection: $($case.Key)" }
+}
 if ($original -notmatch '^[a-f0-9]{64}$') { throw 'Invalid cache fingerprint.' }
 if ($original -ne (Get-CacheIdentity @('msvc', 'sdk', 'headers'))) { throw 'Cache fingerprint is unstable.' }
 foreach ($parts in @(@('msvc-new', 'sdk', 'headers'), @('msvc', 'sdk-new', 'headers'), @('msvc', 'sdk', 'headers-new'))) {

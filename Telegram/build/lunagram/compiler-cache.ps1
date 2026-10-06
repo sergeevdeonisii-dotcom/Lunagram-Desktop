@@ -34,6 +34,22 @@ function Get-CacheIdentity([string[]] $Parts) {
     }
 }
 
+function Set-HeaderGuard([string] $Root, [string[]] $Files, [string] $Destination) {
+    $entries = @(foreach ($file in ($Files | Sort-Object -Unique)) {
+        $path = Get-CacheChild $Root $file
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $file + ':' + (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+        } else {
+            $file + ':missing'
+        }
+    })
+    [IO.File]::WriteAllText($Destination, (Get-CacheIdentity $entries), [Text.UTF8Encoding]::new($false))
+}
+
+function Test-GuardInput([string] $Path) {
+    return ($Path -notmatch '^Telegram/SourceFiles/.+\.cpp$' -or $Path -match '/codegen/')
+}
+
 function Invoke-CacheCommand([string] $Command, [string[]] $Arguments) {
     $result = @(& $Command @Arguments 2>&1)
     if ($LASTEXITCODE -ne 0) {
@@ -92,13 +108,28 @@ switch ($Stage) {
         $compiler = (Get-Command cl.exe -ErrorAction Stop).Source
         $identity = Get-CacheIdentity @(
             $cacheVersion, $env:ImageOS, $env:ImageVersion, $env:VCToolsVersion,
-            $env:WindowsSDKVersion, $env:INCLUDE, $env:LIB, $env:LIBPATH,
+            $env:WindowsSDKVersion, $env:INCLUDE, $env:EXTERNAL_INCLUDE, $env:LIB, $env:LIBPATH,
             $env:CL, $env:_CL_, $env:LUNAGRAM_CACHE_KEY, $env:LUNAGRAM_SOURCE_ROOT,
+            $env:TDESKTOP_API_ID, $env:TDESKTOP_API_HASH,
             (Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash,
             (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
         )
         $identityPath = Get-CacheChild $toolRoot 'environment.sha256'
         [IO.File]::WriteAllText($identityPath, $identity, [Text.UTF8Encoding]::new($false))
+        $guardPath = Get-CacheChild $toolRoot 'headers.sha256'
+        Push-Location $env:LUNAGRAM_SOURCE_ROOT
+        try {
+            $tracked = @(& git -c core.quotepath=false ls-files --recurse-submodules)
+            if ($LASTEXITCODE -ne 0) { throw 'Could not fingerprint compiler inputs.' }
+            $guardFiles = @($tracked | Where-Object { Test-GuardInput $_ })
+            $includedSources = @(& git grep -l -E '#[[:space:]]*include.*\.(cpp|c|mm|m)[">]' -- '*.h' '*.hpp' '*.hxx' '*.inc')
+            if ($LASTEXITCODE -gt 1) { throw 'Could not check source inclusion in headers.' }
+            $global:LASTEXITCODE = 0
+            if ($includedSources.Count) { $guardFiles = $tracked }
+            Set-HeaderGuard $env:LUNAGRAM_SOURCE_ROOT $guardFiles $guardPath
+        } finally {
+            Pop-Location
+        }
         foreach ($item in @{
             BUILDCACHE_DIR = $cacheRoot
             BUILDCACHE_ACCURACY = 'STRICT'
@@ -109,7 +140,7 @@ switch ($Stage) {
             BUILDCACHE_HARD_LINKS = 'false'
             BUILDCACHE_MAX_CACHE_SIZE = '3221225472'
             BUILDCACHE_MAX_LOCAL_ENTRY_SIZE = '1073741824'
-            BUILDCACHE_HASH_EXTRA_FILES = $identityPath
+            BUILDCACHE_HASH_EXTRA_FILES = "$identityPath;$guardPath"
             LUNAGRAM_COMPILER_CACHE_KEY = "compiler-v1-$identity"
             LUNAGRAM_COMPILER_CACHE_TOOL = $tool
         }.GetEnumerator()) { Set-BuildEnvironment $item.Key $item.Value }
@@ -125,6 +156,10 @@ switch ($Stage) {
         }
         Push-Location $probeRoot
         try {
+            $applicationGuard = $env:BUILDCACHE_HASH_EXTRA_FILES
+            $probeGuard = Get-CacheChild $toolRoot 'probe-headers.sha256'
+            $env:BUILDCACHE_HASH_EXTRA_FILES = "$applicationGuard;$probeGuard"
+            Set-HeaderGuard $probeRoot @('pch.h', 'value.h', 'after.h') $probeGuard
             Invoke-CacheCommand $tool @('--zero-stats') | Out-Null
             $initial = Invoke-CacheProbe $tool $probeRoot '7'
             $initialHits = Get-LocalCacheHits (Invoke-CacheCommand $tool @('--show-stats'))
@@ -141,6 +176,7 @@ switch ($Stage) {
             $headerPath = Get-CacheChild $probeRoot 'value.h'
             $header = [IO.File]::ReadAllText($headerPath).Replace('PROBE_VALUE 7', 'PROBE_VALUE 11')
             [IO.File]::WriteAllText($headerPath, $header, [Text.UTF8Encoding]::new($false))
+            Set-HeaderGuard $probeRoot @('pch.h', 'value.h', 'after.h') $probeGuard
             $headerChange = Invoke-CacheProbe $tool $probeRoot '12'
             [ordered] @{
                 version = $cacheVersion
@@ -162,8 +198,10 @@ switch ($Stage) {
             $_.Exception.Message | Add-Content -LiteralPath (Join-Path $env:LUNAGRAM_DIAGNOSTICS 'compiler-cache-error.txt') -Encoding utf8
             Write-Warning 'Compiler cache was not enabled: compatibility probe failed. The normal PCH build remains available.'
             if ($Required) { throw }
+            $global:LASTEXITCODE = 0
         } finally {
             $env:BUILDCACHE_TERMINATE_ON_MISS = 'false'
+            $env:BUILDCACHE_HASH_EXTRA_FILES = $applicationGuard
             Pop-Location
         }
     }

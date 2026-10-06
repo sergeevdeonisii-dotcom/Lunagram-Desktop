@@ -14,6 +14,11 @@ include/library paths, and helper version. Only the compiler cache directory
 is uploaded, not CMakeCache.txt, build commands, or account profiles. The
 compressed cache is capped at 3 GiB; individual entries at 1 GiB. Caching
 uses STRICT accuracy and does not use hard links or remote third-party storage.
+Direct mode is disabled. An extra content fingerprint covers headers, code
+generators, resources and build configuration, including macro-only edits
+that MSVC preprocessor output can omit. Header changes deliberately discard
+all previous object hits; ordinary application .cpp edits can reuse the
+other objects. The compatibility probe exercises this extra guard too.
 
 The first application build populates the cache and may take longer than
 the existing uncached build. Later builds can reuse unchanged compilation

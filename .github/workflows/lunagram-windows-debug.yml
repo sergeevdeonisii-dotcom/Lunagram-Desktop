@@ -93,6 +93,8 @@ jobs:
         with:
           path: ${{ env.LUNAGRAM_BUILD_ROOT }}\ThirdParty
           key: tools-${{ env.LUNAGRAM_CACHE_KEY }}
+          restore-keys: |
+            tools-win-x64-msvc1444-sdk26100-qt6-debug-v1-
 
       - name: Restore native libraries
         id: libraries-cache
@@ -103,6 +105,8 @@ jobs:
             !${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\[qQ]t[_-]*
             !${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\cache_keys\[qQ]t[_-]*
           key: libraries-${{ env.LUNAGRAM_CACHE_KEY }}
+          restore-keys: |
+            libraries-win-x64-msvc1444-sdk26100-qt6-debug-v1-
 
       - name: Restore Qt 6
         id: qt-cache
@@ -112,6 +116,8 @@ jobs:
             ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\[qQ]t[_-]*
             ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\cache_keys\[qQ]t[_-]*
           key: qt-${{ env.LUNAGRAM_CACHE_KEY }}
+          restore-keys: |
+            qt-win-x64-msvc1444-sdk26100-qt6-debug-v1-
 
       - name: Prepare Debug-only dependencies
         run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Prepare'

@@ -15,6 +15,7 @@ build and startup check produce an artifact; runtime account/UI verification
 is still required before a production release. Interim packages are clearly
 marked **Windows x64 Debug** and use `%APPDATA%\Lunagram`, independent from
 ordinary Telegram. Existing Telegram profiles are not imported automatically.
+Initial Windows test executables are unsigned, not production releases.
 
 Implemented source covers grouped Lunagram settings, three built-in palettes,
 rounded translucent composer styling, local typing pulses, automatic text

@@ -697,6 +697,8 @@ win:
         -DCMAKE_INSTALL_PREFIX=%LIBS_DIR%/local ^
         -DOPUS_STATIC_RUNTIME=ON
     cmake --build out --config Debug
+    cmake --install out --config Debug
+release:
     cmake --build out --config Release
     cmake --install out --config Release
 mac:

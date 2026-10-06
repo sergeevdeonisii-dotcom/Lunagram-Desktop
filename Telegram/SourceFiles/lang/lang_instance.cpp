@@ -553,7 +553,7 @@ void Instance::fillFromSerialized(
 }
 
 void Instance::applyLunagramTranslations() {
-	if (_id != u"ru"_q || isCustom()) {
+	if ((_id != u"ru"_q && baseId() != u"ru"_q) || isCustom()) {
 		return;
 	}
 	loadFromContent(Lang::FileParser::ReadFile(

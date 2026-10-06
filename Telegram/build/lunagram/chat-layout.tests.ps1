@@ -66,6 +66,10 @@ $chatStyle = Read-Source ($prefix + 'ui/chat/chat.style')
 $helpersStyle = Read-Source ($prefix + 'chat_helpers/chat_helpers.style')
 $designStyle = Read-Source ($prefix + 'lunagram/lunagram_design.style')
 $nativeSize = Read-Source ($prefix + 'history/view/media/history_view_media_common.cpp')
+$inner = Read-Source ($prefix + 'history/history_inner_widget.cpp')
+$message = Read-Source ($prefix + 'history/view/history_view_message.cpp')
+$reply = Read-Source ($prefix + 'history/view/history_view_reply.cpp')
+$paintContext = Read-Source ($prefix + 'ui/chat/chat_style.h')
 
 Assert-Contract ($chatStyle -match 'msgMaxWidth:\s*430px;') 'Plain text max width changed.'
 Assert-Contract ($chatStyle -match 'maxMediaSize:\s*430px;') 'Global media max width changed.'
@@ -144,6 +148,92 @@ foreach ($name in @('sizeForGroupingOptimal', 'sizeForGrouping')) {
     Assert-Contract ($body -notmatch 'maximumMediaSize|lunagramReference') 'Grouped photo sizing must remain native.'
 }
 Assert-Contract ($nativeSize -match '(?s)CountDesiredMediaSize\(QSize original\).*?DownscaledSize\(\s*style::ConvertScale\(original\),\s*\{ st::maxMediaSize, st::maxMediaSize \}') 'Native unmodified downscale contract changed.'
+
+Assert-Contract ($paintContext -match 'bool backdrop = false;') 'Backdrop paint must be opt-in for every existing context.'
+$capture = Function-Body $inner 'HistoryInner::paintBackdrop'
+foreach ($contract in @(
+    'context.backdrop = true;',
+    'context.paused = true;',
+    'context.skipSelectionCheck = true;',
+    'context.reactionInfo = nullptr;',
+    'context.highlightPathCache = nullptr;',
+    'context.gestureHorizontal = {};',
+    '_widget->history() != _history',
+    'view->data()->isService()',
+    'view->data()->isSponsored()',
+    'view->data()->hasUnpaidContent()',
+    'view->data()->media()->gift()',
+    'view->data()->media()->ttlSeconds()',
+    'view->data()->media()->sharedContact()',
+    'view->data()->media()->todolist()',
+    'view->data()->media()->paper()',
+    'view->data()->media()->giveawayStart()',
+    'view->data()->media()->giveawayResults()',
+    'enumerateItemsInHistory<true>',
+    'view->draw(p, copy)'
+)) {
+    Assert-Contract ($capture.Contains($contract)) ('Capture source contract missing: ' + $contract)
+}
+Assert-Contract ($capture -notmatch 'processPainted|startBunch|readInboxTill|markContentsRead|scheduleIncrement|pollExtendedMedia|recordCurrentReactionEffect|visibleAreaUpdated|adjustCurrent') 'Backdrop must not run native observation, polling or scrolling bookkeeping.'
+$iterator = Function-Body $inner 'HistoryInner::enumerateItemsInHistory'
+Assert-Contract ($iterator -match 'clip.isNull\(\) \? _visibleAreaTop : clip.top\(\)') 'Normal iterator visibility must be preserved.'
+Assert-Contract ($iterator -match 'clip.isNull\(\) \? 0 : collapseGapsTotal') 'Capture must include collapsed-gap shifted history extent.'
+$prepare = Function-Body $history 'HistoryWidget::prepareComposeBackdrop'
+Assert-Contract ($prepare -match '_list->theme\(\)->background\(\).giftId') 'Gift wallpaper must retain the native path.'
+Assert-Contract ($prepare -match '_kbScroll->isHidden\(\) \? _kbScroll->y\(\) : height\(\)') 'Continuation must stop above a visible native bot keyboard.'
+Assert-Contract ($prepare -match '_list->theme\(\)') 'Backdrop fingerprint must use this history actual theme.'
+Assert-Contract ($prepare -notmatch 'resize\(|setGeometry\(|scrollToY\(|historyMargin|visibleAreaUpdated') 'Backdrop must not change native scroll geometry or range.'
+$sourcePaint = Function-Body $history 'HistoryWidget::paintComposeBackdrop'
+Assert-Contract ($sourcePaint -match 'list->mapTo\(this, QPoint\(\)\)') 'Source origin must include the actual native scroll offset.'
+Assert-Contract ($sourcePaint -match 'clip.translated\(-origin\)') 'Message clip must map to HistoryInner local coordinates.'
+Assert-Contract ($sourcePaint -notmatch 'grab\(|render\(|QPaintEvent|paintEvent\(') 'Capture cannot recurse into QWidget paint or screen sampling.'
+$historyPaint = Function-Body $history 'HistoryWidget::paintEvent'
+Assert-Contract ($historyPaint.IndexOf('prepareComposeBackdrop()') -lt $historyPaint.IndexOf('Painter p(this)')) 'Prepare source before the native widget painter.'
+Assert-Contract ($historyPaint.IndexOf('paintComposeBackdrop(p,') -lt $historyPaint.IndexOf('drawField(p,')) 'Raw continuation must paint before composer surfaces.'
+Assert-Contract ($historyPaint -match '(?s)if \(backdrop\) \{.*?paintComposeBackdrop\(p,') 'Continuation must remain native-DPR while blur is pending.'
+$switch = Function-Body $history 'HistoryWidget::setHistory'
+Assert-Contract ($switch -match 'Lunagram::ClearGlassBackdrop\(this\)') 'Chat switch must discard private pixels immediately.'
+$nativePaint = Function-Body $inner 'HistoryInner::paintEvent'
+Assert-Contract ($nativePaint -notmatch 'invalidateComposeBackdrop') 'Worker completion cannot induce an Inner paint/revision feedback loop.'
+$messagePaint = Function-Body $message 'Message::draw'
+Assert-Contract ($messagePaint -match '!context.backdrop && item->hasUnrequestedFactcheck\(\)') 'Capture must not request fact checks.'
+Assert-Contract ($messagePaint -match 'context.backdrop \? nullptr : Get<Reply>\(\)') 'Capture must not trigger a reply layout resize.'
+Assert-Contract ($messagePaint -match 'media && !context.backdrop') 'Capture must not start bubble fireworks.'
+$replyPaint = Function-Body $reply 'Reply::paint'
+Assert-Contract ($replyPaint -match '(?s)const auto image = \[&\].*?if \(context.backdrop\) \{\s*return nullptr;') 'Capture must not retrieve lazy reply preview assets.'
+
+foreach ($scale in @(100, 125, 150, 175, 200, 300)) {
+    $halo = Native-Scale 20 $scale
+    foreach ($scrollHeight in @(1, 80, 500)) {
+        foreach ($fieldHeight in @(40, 89, 224)) {
+            foreach ($keyboardHeight in @(0, 90, 280)) {
+                $viewportTop = Native-Scale 66 $scale
+                $viewportHeight = Native-Scale $scrollHeight $scale
+                $composeHeight = Native-Scale $fieldHeight $scale
+                $keyboard = Native-Scale $keyboardHeight $scale
+                $viewportBottom = $viewportTop + $viewportHeight
+                $keyboardTop = $viewportBottom + $composeHeight
+                $windowBottom = $keyboardTop + $keyboard
+                $roiTop = [math]::Max($viewportTop, $viewportBottom - $halo)
+                $roiBottom = if ($keyboard -gt 0) { $keyboardTop } else { $windowBottom }
+                Assert-Contract ($roiTop -le $viewportBottom -and $roiBottom -eq $keyboardTop) 'ROI does not cover composer plus bounded halo or crosses keyboard.'
+                foreach ($scrollTop in @(0, 39, 1200, 120000)) {
+                    $listOrigin = $viewportTop - $scrollTop
+                    $innerEdge = $viewportBottom - $listOrigin
+                    Assert-Contract ($innerEdge -eq $scrollTop + $viewportHeight) 'Underlap must use exactly the native next content pixel.'
+                    $innerBottom = $roiBottom - $listOrigin
+                    Assert-Contract ($innerBottom + $listOrigin -eq $roiBottom) 'Caller/list coordinate round-trip changed with scrolling/DPI.'
+                }
+            }
+        }
+    }
+}
+foreach ($gap in @(1, 19, 100, 400)) {
+    $logicalEnd = 1000
+    $shiftedEnd = $logicalEnd + $gap
+    $captureTop = $shiftedEnd - 1
+    Assert-Contract ($logicalEnd -le $captureTop -and $shiftedEnd -gt $captureTop) 'Collapsed-gap capture extent regression model failed.'
+}
 
 foreach ($scale in @(100, 125, 133, 150, 175, 200, 250, 300)) {
     $padding = Native-Scale 9 $scale

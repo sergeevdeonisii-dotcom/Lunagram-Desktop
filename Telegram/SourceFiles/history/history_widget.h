@@ -60,6 +60,7 @@ struct RichPage;
 
 namespace Lunagram {
 class PendingSend;
+struct GlassBackdrop;
 } // namespace Lunagram
 
 namespace Support {
@@ -172,6 +173,7 @@ public:
 	[[nodiscard]] bool markingMessagesRead() const;
 	[[nodiscard]] bool markingContentsRead() const;
 	bool skipItemRepaint();
+	void invalidateComposeBackdrop(QRect innerArea = QRect());
 	void checkActivation();
 
 	void leaveToChildEvent(QEvent *e, QWidget *child) override;
@@ -655,7 +657,12 @@ private:
 
 	void sendInlineResult(InlineBots::ResultSelected result);
 
-	void drawField(Painter &p, const QRect &rect);
+	[[nodiscard]] const Lunagram::GlassBackdrop *prepareComposeBackdrop();
+	void paintComposeBackdrop(Painter &p, QRect clip);
+	void drawField(
+		Painter &p,
+		const QRect &rect,
+		const Lunagram::GlassBackdrop *backdrop = nullptr);
 	void paintEditHeader(
 		Painter &p,
 		const QRect &rect,
@@ -845,6 +852,7 @@ private:
 
 	bool _preserveScrollTop = false;
 	bool _repaintFieldScheduled = false;
+	uint64 _composeBackdropRevision = 1;
 	bool _sentFromScheduledTip = false;
 
 	mtpRequestId _saveEditMsgRequestId = 0;

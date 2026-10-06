@@ -1714,6 +1714,9 @@ int Message::marginBottom() const {
 }
 
 void Message::draw(Painter &p, const PaintContext &context) const {
+	if (context.backdrop && data()->Has<HistoryMessageRichPageSource>()) {
+		return;
+	}
 	auto g = countGeometry();
 	if (g.width() < 1) {
 		return;
@@ -1736,7 +1739,7 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 		p.translate(selectionTranslation, 0);
 	}
 
-	if (item->hasUnrequestedFactcheck()) {
+	if (!context.backdrop && item->hasUnrequestedFactcheck()) {
 		item->history()->session().factchecks().requestFor(item);
 	}
 
@@ -1889,7 +1892,9 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 	}
 	if (bubble) {
 		const auto from = displayFromName() ? displayFrom() : nullptr;
-		if (from && (_fromNameVersion < from->nameVersion())) {
+		if (!context.backdrop
+			&& from
+			&& (_fromNameVersion < from->nameVersion())) {
 			fromNameUpdated(g.width());
 		}
 		const auto simple = Ui::SimpleBubble{
@@ -2138,7 +2143,9 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 				p.setOpacity(o);
 			}
 		}
-		ensureSummarizeButton();
+		if (!context.backdrop) {
+			ensureSummarizeButton();
+		}
 		if (const auto size = rightActionSize(); size || _summarize) {
 			const auto rightActionWidth = size
 				? size->width()
@@ -2183,7 +2190,7 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 			}
 		}
 
-		if (media) {
+		if (media && !context.backdrop) {
 			media->paintBubbleFireworks(p, g, context.now);
 		}
 	} else if (media && media->isDisplayed()) {
@@ -2221,7 +2228,7 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 		p.restore();
 	}
 
-	if (const auto reply = Get<Reply>()) {
+	if (const auto reply = context.backdrop ? nullptr : Get<Reply>()) {
 		if (const auto replyData = item->Get<HistoryMessageReply>()) {
 			if (reply->isNameUpdated(this, replyData)) {
 				const_cast<Message*>(this)->setPendingResize();
@@ -2377,6 +2384,10 @@ void Message::paintCommentsButton(
 		return;
 	}
 	if (!_comments) {
+		if (context.backdrop) {
+			g.setHeight(g.height() - st::historyCommentsButtonHeight);
+			return;
+		}
 		_comments = std::make_unique<CommentsButton>();
 		history()->owner().registerHeavyViewPart(const_cast<Message*>(this));
 	}
@@ -2388,7 +2399,7 @@ void Message::paintCommentsButton(
 	auto left = g.left();
 	auto width = g.width();
 
-	if (_comments->ripple) {
+	if (_comments->ripple && !context.backdrop) {
 		p.setOpacity(st::historyPollRippleOpacity);
 		const auto colorOverride = &stm->msgWaveformInactive->c;
 		_comments->ripple->paint(
@@ -2427,7 +2438,7 @@ void Message::paintCommentsButton(
 		const auto count = std::min(int(views->recentRepliers.size()), limit);
 		const auto single = st::historyCommentsUserpics.size;
 		const auto shift = st::historyCommentsUserpics.shift;
-		const auto regenerate = [&] {
+		const auto regenerate = !context.backdrop && [&] {
 			if (list.size() != count) {
 				return true;
 			}
@@ -2519,7 +2530,9 @@ void Message::paintFromName(
 		colorCollectible());
 	const auto nameText = [&] {
 		if (from) {
-			validateFromNameText(from);
+			if (!context.backdrop) {
+				validateFromNameText(from);
+			}
 			return static_cast<const Ui::Text::String*>(&_fromName);
 		}
 		return &info->nameText();
@@ -2544,7 +2557,7 @@ void Message::paintFromName(
 		auto color = nameFg;
 		color.setAlpha(115);
 		const auto id = from ? from->emojiStatusId() : EmojiStatusId();
-		if (_fromNameStatus->id != id) {
+		if (_fromNameStatus->id != id && !context.backdrop) {
 			const auto that = const_cast<Message*>(this);
 			_fromNameStatus->custom = id
 				? MakeWrappedEmoji<Ui::Text::LimitedLoopsEmoji>(

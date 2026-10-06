@@ -225,10 +225,13 @@ QSize ThemeDocument::countCurrentSize(int newWidth) {
 
 void ThemeDocument::draw(Painter &p, const PaintContext &context) const {
 	if (width() < st::msgPadding.left() + st::msgPadding.right() + 1) return;
+	if (context.backdrop && _data && !_dataMedia) {
+		return;
+	}
 
 	ensureDataMediaCreated();
 
-	if (_data) {
+	if (_data && !context.backdrop) {
 		_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
 	}
 	const auto st = context.st;
@@ -238,7 +241,7 @@ void ThemeDocument::draw(Painter &p, const PaintContext &context) const {
 
 	auto paintx = 0, painty = 0, paintw = width(), painth = height();
 
-	if (displayLoading) {
+	if (!context.backdrop && displayLoading) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(dataProgress());

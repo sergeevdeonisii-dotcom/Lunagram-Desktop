@@ -14,7 +14,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/shadow.h"
 #include "ui/widgets/buttons.h"
 #include "ui/wrap/fade_wrap.h"
-#include "window/window_session_controller.h"
 
 #include <QtGui/QtEvents>
 
@@ -48,7 +47,7 @@ PinnedBar::PinnedBar(
 	_wrap.entity()->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
 		if (Lunagram::ReferenceDesignEnabled()) {
-			const auto theme = _controller->currentChatTheme();
+			const auto theme = Lunagram::ReferenceChatTheme(_controller);
 			Lunagram::PaintReferenceBackdrop(
 				_controller,
 				theme,

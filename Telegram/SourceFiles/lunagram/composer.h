@@ -28,6 +28,8 @@ class SessionController;
 
 namespace Lunagram {
 
+struct GlassBackdrop;
+
 class PendingSend final : public base::has_weak_ptr {
 public:
 	PendingSend(
@@ -69,13 +71,15 @@ void PaintComposerPanel(
 	QRect bounds,
 	not_null<Main::Session*> session,
 	Window::SessionController *controller,
-	QWidget *widget);
+	QWidget *widget,
+	const GlassBackdrop *backdrop = nullptr);
 void PaintComposerBackground(
 	QPainter &p,
 	const QRect &bounds,
 	not_null<Main::Session*> session,
 	bool fillBackground = true,
 	Window::SessionController *controller = nullptr,
-	QWidget *widget = nullptr);
+	QWidget *widget = nullptr,
+	const GlassBackdrop *backdrop = nullptr);
 
 } // namespace Lunagram

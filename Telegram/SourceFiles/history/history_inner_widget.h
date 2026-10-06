@@ -148,6 +148,7 @@ public:
 	}
 
 	Ui::ChatPaintContext preparePaintContext(const QRect &clip) const;
+	void paintBackdrop(Painter &p, QRect clip);
 
 	using CollapseGap = Ui::CollapseGap;
 
@@ -371,7 +372,11 @@ private:
 	// Method has "bool (*Method)(not_null<Element*> view, int itemtop, int itembottom)" signature
 	// if it returns false the enumeration stops immediately.
 	template <bool TopToBottom, typename Method>
-	void enumerateItemsInHistory(History *history, int historytop, Method method);
+	void enumerateItemsInHistory(
+		History *history,
+		int historytop,
+		Method method,
+		QRect clip = QRect());
 
 	template <EnumItemsDirection direction, typename Method>
 	void enumerateItems(Method method) {

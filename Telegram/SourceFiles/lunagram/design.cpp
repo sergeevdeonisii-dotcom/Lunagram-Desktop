@@ -17,6 +17,7 @@
 
 #include <crl/crl_async.h>
 #include <QtCore/QPointer>
+#include <QtGui/QFontDatabase>
 #include <QtGui/QLinearGradient>
 #include <QtGui/QPainterPath>
 #include <algorithm>
@@ -30,6 +31,7 @@ namespace Lunagram {
 namespace {
 
 constexpr auto kGlassSourcePixels = 768 * 1024;
+constexpr auto kGlassContentPixels = 256 * 1024;
 constexpr auto kGlassConsumerLimit = 32;
 constexpr auto kGlassFrameInterval = crl::time(33);
 constexpr auto kGlassSlowFrameInterval = crl::time(100);
@@ -95,6 +97,47 @@ private:
 	rpl::lifetime _lifetime;
 
 };
+
+class ContentBackdropCache final : public QObject, public base::has_weak_ptr {
+public:
+	ContentBackdropCache(not_null<QWidget*> owner);
+	~ContentBackdropCache();
+
+	const GlassBackdrop &prepare(
+		QRect area,
+		uint64 revision,
+		Fn<void(Painter&, QRect)> paint,
+		Ui::ChatTheme *theme);
+	void clear();
+
+private:
+	void invalidate();
+	void checkBackground();
+	void refresh();
+	void accept(uint64 generation, QImage blurred, bool dark);
+
+	QPointer<QWidget> _owner;
+	base::weak_ptr<Ui::ChatTheme> _theme;
+	BackdropFingerprint _fingerprint;
+	GlassBackdrop _frame;
+	QRect _area;
+	uint64 _revision = 0;
+	uint64 _generation = 0;
+	float64 _deviceRatio = 0.;
+	crl::time _lastCapture = 0;
+	bool _dirty = true;
+	bool _running = false;
+	base::Timer _refreshTimer;
+	rpl::lifetime _themeLifetime;
+	rpl::lifetime _lifetime;
+
+};
+
+[[nodiscard]] auto ContentBackdropCaches()
+-> std::map<QWidget*, QPointer<ContentBackdropCache>> & {
+	static auto result = std::map<QWidget*, QPointer<ContentBackdropCache>>();
+	return result;
+}
 
 [[nodiscard]] std::map<MainWidget*, QPointer<BackdropCache>> &BackdropCaches() {
 	static auto result = std::map<MainWidget*, QPointer<BackdropCache>>();
@@ -320,6 +363,158 @@ bool BackdropCache::dark() const {
 	return _dark;
 }
 
+ContentBackdropCache::ContentBackdropCache(not_null<QWidget*> owner)
+: QObject(owner)
+, _owner(owner)
+, _refreshTimer([=] { refresh(); }) {
+	style::PaletteChanged() | rpl::on_next([=] {
+		invalidate();
+		refresh();
+	}, _lifetime);
+}
+
+ContentBackdropCache::~ContentBackdropCache() {
+	for (auto i = ContentBackdropCaches().begin()
+		; i != ContentBackdropCaches().end();) {
+		if (!i->second || i->second.data() == this) {
+			i = ContentBackdropCaches().erase(i);
+		} else {
+			++i;
+		}
+	}
+}
+
+void ContentBackdropCache::invalidate() {
+	++_generation;
+	_dirty = true;
+	_frame = GlassBackdrop();
+}
+
+void ContentBackdropCache::checkBackground() {
+	if (const auto theme = _theme.get()) {
+		const auto fingerprint = Fingerprint(theme->background());
+		if (_fingerprint != fingerprint) {
+			_fingerprint = fingerprint;
+			invalidate();
+		} else {
+			_dirty = true;
+		}
+		_refreshTimer.callOnce(kGlassFrameInterval);
+	}
+}
+
+void ContentBackdropCache::refresh() {
+	if (_owner && !_area.isEmpty()) {
+		_owner->update(_area);
+	}
+}
+
+void ContentBackdropCache::clear() {
+	_area = QRect();
+	_theme = nullptr;
+	_themeLifetime.destroy();
+	_refreshTimer.cancel();
+	invalidate();
+}
+
+const GlassBackdrop &ContentBackdropCache::prepare(
+		QRect area,
+		uint64 revision,
+		Fn<void(Painter&, QRect)> paint,
+		Ui::ChatTheme *theme) {
+	if (!_owner) {
+		return _frame;
+	}
+	if (_theme.get() != theme) {
+		_themeLifetime.destroy();
+		_theme = theme ? base::make_weak(theme) : nullptr;
+		if (theme) {
+			theme->repaintBackgroundRequests() | rpl::on_next([=] {
+				checkBackground();
+			}, _themeLifetime);
+		}
+		invalidate();
+	}
+	if (theme) {
+		const auto fingerprint = Fingerprint(theme->background());
+		if (_fingerprint != fingerprint) {
+			_fingerprint = fingerprint;
+			invalidate();
+		}
+	}
+	area = area.intersected(_owner->rect());
+	const auto ratio = _owner->devicePixelRatioF();
+	if (_area != area || _revision != revision || _deviceRatio != ratio) {
+		_area = area;
+		_revision = revision;
+		_deviceRatio = ratio;
+		invalidate();
+	}
+	if (!_dirty || _running || _area.isEmpty() || !paint) {
+		return _frame;
+	}
+	const auto interval = PowerSaving::On(PowerSaving::kChatBackground)
+		? kGlassSlowFrameInterval
+		: kGlassFrameInterval;
+	const auto remaining = _lastCapture + interval - crl::now();
+	if (remaining > 0) {
+		_refreshTimer.callOnce(remaining);
+		return _frame;
+	}
+	const auto pixels = float64(_area.width()) * _area.height();
+	const auto scale = std::min(
+		_deviceRatio / 2.,
+		std::sqrt(kGlassContentPixels / pixels));
+	const auto size = QSize(
+		std::max(1, int(std::floor(_area.width() * scale))),
+		std::max(1, int(std::floor(_area.height() * scale))));
+	auto source = QImage(size, QImage::Format_ARGB32_Premultiplied);
+	source.setDevicePixelRatio(scale);
+	source.fill(Qt::transparent);
+	{
+		auto p = Painter(&source);
+		p.translate(-_area.topLeft());
+		p.setClipRect(_area);
+		paint(p, _area);
+	}
+	_frame.source = source;
+	_frame.area = _area;
+	_frame.scale = scale;
+	_dirty = false;
+	_running = true;
+	_lastCapture = crl::now();
+	const auto generation = ++_generation;
+	const auto radius = std::max(1, int(std::round(
+		st::lunagramGlassBlurRadius * scale)));
+	const auto weak = base::make_weak(this);
+	crl::async([weak, source = std::move(source), generation, radius]() mutable {
+		const auto average = Ui::CountAverageColor(source);
+		const auto dark = (0.2126 * average.redF()
+			+ 0.7152 * average.greenF()
+			+ 0.0722 * average.blueF()) < 0.35;
+		auto blurred = Images::BlurLargeImage(std::move(source), radius);
+		crl::on_main(weak, [weak, generation, dark,
+			blurred = std::move(blurred)]() mutable {
+			if (const auto cache = weak.get()) {
+				cache->accept(generation, std::move(blurred), dark);
+			}
+		});
+	});
+	return _frame;
+}
+
+void ContentBackdropCache::accept(
+		uint64 generation,
+		QImage blurred,
+		bool dark) {
+	_running = false;
+	if (generation == _generation && _owner) {
+		_frame.blurred = std::move(blurred);
+		_frame.dark = dark;
+	}
+	refresh();
+}
+
 [[nodiscard]] not_null<BackdropCache*> CacheFor(
 		not_null<MainWidget*> owner) {
 	auto &cache = BackdropCaches()[owner];
@@ -355,6 +550,26 @@ void PaintGlassEdge(QPainter &p, QRect bounds, int radius) {
 
 } // namespace
 
+QString ReferenceFontFamily(const QString &preferred) {
+	if (!preferred.isEmpty() || !ReferenceDesignEnabled()) {
+		return preferred;
+	}
+#ifdef Q_OS_WIN
+	const auto families = QFontDatabase::families();
+	for (const auto &family : { u"Segoe UI Variable Text"_q, u"Segoe UI"_q }) {
+		if (families.contains(family, Qt::CaseInsensitive)) {
+			return family;
+		}
+	}
+#endif // Q_OS_WIN
+	return preferred;
+}
+
+not_null<Ui::ChatTheme*> ReferenceChatTheme(
+		not_null<Window::SessionController*> controller) {
+	return controller->currentChatTheme();
+}
+
 void EnsureReferenceAppearance() {
 	if (!ReferenceDesignEnabled()) {
 		return;
@@ -369,6 +584,52 @@ void EnsureReferenceAppearance() {
 		settings.writePref<bool>("lunagram/liquid_appearance_v2", true);
 		Core::App().saveSettingsDelayed();
 	}
+}
+
+const GlassBackdrop &PrepareGlassBackdrop(
+		not_null<QWidget*> widget,
+		QRect area,
+		uint64 revision,
+		Fn<void(Painter&, QRect)> paint,
+		Ui::ChatTheme *theme) {
+	auto &cache = ContentBackdropCaches()[widget.get()];
+	if (!cache) {
+		cache = new ContentBackdropCache(widget);
+	}
+	return cache->prepare(area, revision, std::move(paint), theme);
+}
+
+void ClearGlassBackdrop(not_null<QWidget*> widget) {
+	const auto i = ContentBackdropCaches().find(widget.get());
+	if (i != ContentBackdropCaches().end() && i->second) {
+		i->second->clear();
+	}
+}
+
+void PaintReferenceBackdrop(
+		QPainter &p,
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::ChatTheme*> theme,
+		not_null<QWidget*> widget,
+		QRect clip) {
+	const auto content = controller->content();
+	const auto shared = ReferenceDesignEnabled()
+		&& !theme->background().giftId
+		&& !content->size().isEmpty()
+		&& (widget.get() == content.get()
+			|| content->isAncestorOf(widget.get()));
+	const auto origin = shared ? widget->mapTo(content, QPoint()) : QPoint();
+	clip.translate(origin);
+	p.save();
+	p.translate(-origin);
+	p.setClipRect(clip, Qt::IntersectClip);
+	Window::SectionWidget::PaintBackground(
+		p,
+		theme,
+		shared ? content->size() : widget->size(),
+		clip,
+		controller->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
+	p.restore();
 }
 
 void PaintReferenceBackdrop(
@@ -414,6 +675,65 @@ void PaintGlassPanel(
 	p.setBrush(background);
 	p.setPen(QPen(border, st::lineWidth));
 	p.drawRoundedRect(bounds, rounding, rounding);
+	p.restore();
+}
+
+void PaintGlassPanel(
+		QPainter &p,
+		QRect bounds,
+		QColor tint,
+		const GlassBackdrop &backdrop,
+		int radius) {
+	if (bounds.isEmpty()) {
+		return;
+	}
+	tint.setAlpha(std::min(tint.alpha(), backdrop.dark
+		? st::lunagramGlassDarkTintAlpha
+		: st::lunagramGlassContentTintAlpha));
+	if (backdrop.source.isNull() || !backdrop.area.contains(bounds)) {
+		PaintGlassPanel(p, bounds, tint, radius);
+		return;
+	}
+	const auto rounding = radius ? radius : st::lunagramReferencePanelRadius;
+	const auto shape = PanelShape(bounds, rounding);
+	p.save();
+	p.setRenderHint(QPainter::Antialiasing);
+	p.setRenderHint(QPainter::SmoothPixmapTransform);
+	p.save();
+	p.setClipPath(shape, Qt::IntersectClip);
+	p.drawImage(
+		backdrop.area,
+		backdrop.blurred.isNull() ? backdrop.source : backdrop.blurred);
+	p.fillPath(shape, tint);
+	{
+		p.save();
+		const auto half = std::min(bounds.width(), bounds.height()) / 2;
+		const auto rim = std::min(st::lunagramGlassRefractionWidth, half);
+		const auto inner = bounds.adjusted(rim, rim, -rim, -rim);
+		const auto ring = inner.isEmpty()
+			? shape
+			: shape.subtracted(PanelShape(
+				inner,
+				std::max(rounding - rim, 0)));
+		p.setClipPath(ring, Qt::IntersectClip);
+		p.setOpacity(p.opacity() * st::lunagramGlassRefractionOpacity);
+		const auto shift = std::min(
+			st::lunagramGlassRefractionShift,
+			std::max(half - st::lineWidth, 0));
+		const auto sample = QRectF(bounds.translated(-backdrop.area.topLeft()))
+			.adjusted(shift, shift, -shift, -shift);
+		p.drawImage(
+			bounds,
+			backdrop.source,
+			QRectF(
+				sample.x() * backdrop.scale,
+				sample.y() * backdrop.scale,
+				sample.width() * backdrop.scale,
+				sample.height() * backdrop.scale));
+		p.restore();
+	}
+	p.restore();
+	PaintGlassEdge(p, bounds, rounding);
 	p.restore();
 }
 

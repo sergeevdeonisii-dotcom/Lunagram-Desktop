@@ -411,6 +411,7 @@ HistoryInner::HistoryInner(
 	) | rpl::on_next([=](std::shared_ptr<Ui::ChatTheme> &&theme) {
 		_theme = std::move(theme);
 		controller->setChatStyleTheme(_theme);
+		_widget->invalidateComposeBackdrop();
 	}, lifetime());
 	Assert(_theme != nullptr);
 
@@ -454,6 +455,7 @@ HistoryInner::HistoryInner(
 
 	session().data().peerDecorationsUpdated(
 	) | rpl::on_next([=] {
+		_widget->invalidateComposeBackdrop();
 		update();
 	}, lifetime());
 	session().data().itemRemoved(
@@ -882,6 +884,8 @@ void HistoryInner::repaintItem(const Element *view) {
 	const auto top = itemTop(view);
 	if (top >= 0) {
 		const auto range = view->verticalRepaintRange();
+		_widget->invalidateComposeBackdrop(
+			QRect(0, top + range.top, width(), range.height));
 		update(0, top + range.top, width(), range.height);
 		const auto id = view->data()->fullId();
 		if (const auto area = _reactionsManager->lookupEffectArea(id)) {
@@ -899,28 +903,40 @@ void HistoryInner::repaintItem(const Element *view, QRect rect) {
 	}
 	const auto top = itemTop(view);
 	if (top >= 0) {
-		update(rect.translated(0, top));
+		const auto area = rect.translated(0, top);
+		_widget->invalidateComposeBackdrop(area);
+		update(area);
 	}
 }
 
 template <bool TopToBottom, typename Method>
-void HistoryInner::enumerateItemsInHistory(History *history, int historytop, Method method) {
+void HistoryInner::enumerateItemsInHistory(
+		History *history,
+		int historytop,
+		Method method,
+		QRect clip) {
+	const auto visibleTop = clip.isNull() ? _visibleAreaTop : clip.top();
+	const auto visibleBottom = clip.isNull()
+		? _visibleAreaBottom
+		: (clip.top() + clip.height());
 	// No displayed messages in this history.
 	if (historytop < 0 || history->isEmpty()) {
 		return;
 	}
-	if (_visibleAreaBottom <= historytop || historytop + history->height() <= _visibleAreaTop) {
-		return;
-	}
-
 	auto collapseGapsTotal = 0;
 	for (const auto &gap : collapseGaps()) {
 		collapseGapsTotal += gap.height;
 	}
+	const auto historyBottom = historytop
+		+ history->height()
+		+ (clip.isNull() ? 0 : collapseGapsTotal);
+	if (visibleBottom <= historytop || historyBottom <= visibleTop) {
+		return;
+	}
 
 	auto searchEdge = TopToBottom
-		? (_visibleAreaTop - collapseGapsTotal)
-		: _visibleAreaBottom;
+		? (visibleTop - collapseGapsTotal)
+		: visibleBottom;
 
 	// Binary search for blockIndex of the first block that is not completely below the visible area.
 	auto blockIndex = BinarySearchBlocksOrItems<TopToBottom>(history->blocks, searchEdge - historytop);
@@ -960,14 +976,14 @@ void HistoryInner::enumerateItemsInHistory(History *history, int historytop, Met
 			auto itembottom = itemtop + view->height();
 
 			if (TopToBottom) {
-				if (itembottom <= _visibleAreaTop) {
+				if (itembottom <= visibleTop) {
 					if (++itemIndex >= block->messages.size()) {
 						break;
 					}
 					continue;
 				}
 			} else {
-				if (itemtop >= _visibleAreaBottom) {
+				if (itemtop >= visibleBottom) {
 					if (--itemIndex < 0) {
 						break;
 					}
@@ -981,11 +997,11 @@ void HistoryInner::enumerateItemsInHistory(History *history, int historytop, Met
 
 			// Skip all the items that are below / above the visible area.
 			if (TopToBottom) {
-				if (itembottom >= _visibleAreaBottom) {
+				if (itembottom >= visibleBottom) {
 					return;
 				}
 			} else {
-				if (itemtop <= _visibleAreaTop) {
+				if (itemtop <= visibleTop) {
 					return;
 				}
 			}
@@ -1003,11 +1019,11 @@ void HistoryInner::enumerateItemsInHistory(History *history, int historytop, Met
 
 		// Skip all the rest blocks that are below / above the visible area.
 		if (TopToBottom) {
-			if (blockbottom >= _visibleAreaBottom) {
+			if (blockbottom >= visibleBottom) {
 				return;
 			}
 		} else {
-			if (blocktop <= _visibleAreaTop) {
+			if (blocktop <= visibleTop) {
 				return;
 			}
 		}
@@ -1404,6 +1420,64 @@ void HistoryInner::startEffectOnRead(not_null<HistoryItem*> item) {
 			_emojiInteractions->playEffectOnRead(view);
 		}
 	}
+}
+
+void HistoryInner::paintBackdrop(Painter &p, QRect clip) {
+	if (clip.isEmpty()
+		|| hasPendingResizedItems()
+		|| _widget->history() != _history) {
+		return;
+	}
+	auto context = preparePaintContext(clip);
+	context.backdrop = true;
+	context.paused = true;
+	context.skipSelectionCheck = true;
+	context.reactionInfo = nullptr;
+	context.highlightPathCache = nullptr;
+	context.gestureHorizontal = {};
+	const auto wasInactive = p.inactive();
+	const auto inactiveGuard = gsl::finally([&] {
+		p.setInactive(wasInactive);
+	});
+	p.save();
+	p.setClipRect(clip, Qt::IntersectClip);
+	p.setInactive(true);
+	const auto draw = [&](not_null<Element*> view, int top, int bottom) {
+		if (top >= clip.top() + clip.height()) {
+			return false;
+		} else if (bottom <= clip.top()
+			|| view->data()->isService()
+			|| view->data()->isSponsored()
+			|| view->data()->hasUnpaidContent()
+			|| (view->data()->media()
+				&& (view->data()->media()->gift()
+					|| view->data()->media()->ttlSeconds()
+					|| view->data()->media()->sharedContact()
+					|| view->data()->media()->todolist()
+					|| view->data()->media()->paper()
+					|| view->data()->media()->giveawayStart()
+					|| view->data()->media()->giveawayResults()))
+			|| _controller->sendingAnimation().hasAnimatedMessage(view->data())) {
+			return true;
+		}
+		auto copy = context.translated(0, -top);
+		copy.outbg = view->hasOutLayout();
+		p.save();
+		p.translate(0, top);
+		view->draw(p, copy);
+		p.restore();
+		return true;
+	};
+	if (_migrated) {
+		enumerateItemsInHistory<true>(_migrated, migratedTop(), draw, clip);
+	}
+	const auto historyClip = clip.intersected(
+		QRect(0, historyDrawTop(), width(), clip.top() + clip.height()));
+	if (!historyClip.isEmpty()) {
+		p.setClipRect(historyClip, Qt::IntersectClip);
+		enumerateItemsInHistory<true>(_history, historyTop(), draw, historyClip);
+	}
+	p.restore();
 }
 
 void HistoryInner::paintEvent(QPaintEvent *e) {
@@ -4744,6 +4818,7 @@ const std::vector<Ui::CollapseGap> &HistoryInner::collapseGaps() const {
 }
 
 void HistoryInner::collapseGapsUpdated() {
+	_widget->invalidateComposeBackdrop();
 	updateSize();
 }
 

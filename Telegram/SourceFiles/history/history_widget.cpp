@@ -42,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/controls/history_view_rich_draft_preview.h"
 #include "ui/emoji_config.h"
 #include "ui/chat/attach/attach_prepare.h"
+#include "ui/chat/chat_theme.h"
 #include "ui/chat/choose_theme_controller.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/buttons.h"
@@ -414,6 +415,7 @@ HistoryWidget::HistoryWidget(
 	_muteUnmute->setVisualTabOrder(true);
 
 	session().downloaderTaskFinished() | rpl::on_next([=] {
+		invalidateComposeBackdrop();
 		update();
 	}, lifetime());
 
@@ -3644,6 +3646,8 @@ void HistoryWidget::setHistory(History *history) {
 	if (_history == history) {
 		return;
 	}
+	Lunagram::ClearGlassBackdrop(this);
+	++_composeBackdropRevision;
 	_pullToNext->setHistory(history);
 
 	const auto was = _attachBotsMenu && _history && _history->peer->isUser();
@@ -5302,6 +5306,7 @@ bool HistoryWidget::isItemCompletelyHidden(HistoryItem *item) const {
 }
 
 void HistoryWidget::visibleAreaUpdated() {
+	invalidateComposeBackdrop();
 	if (_list && !_firstLoadRequest && !_scroll->isHidden()) {
 		const auto scrollTop = _scroll->scrollTop();
 		const auto scrollBottom = scrollTop + _scroll->height();
@@ -8314,6 +8319,7 @@ void HistoryWidget::updateHistoryItemsByTimer() {
 
 	auto ms = crl::now();
 	if (_lastScrolled + kSkipRepaintWhileScrollMs <= ms) {
+		invalidateComposeBackdrop();
 		_list->update();
 	} else {
 		_updateHistoryItems.callOnce(
@@ -8900,6 +8906,7 @@ void HistoryWidget::startMessageSendingAnimation(
 
 void HistoryWidget::updateListSize() {
 	Expects(_list != nullptr);
+	invalidateComposeBackdrop();
 
 	_list->recountHistoryGeometry(!_historyInited);
 	auto washidden = _scroll->isHidden();
@@ -11355,7 +11362,80 @@ void HistoryWidget::updateField() {
 	rtlupdate(0, fieldAreaTop, width(), height() - fieldAreaTop);
 }
 
-void HistoryWidget::drawField(Painter &p, const QRect &rect) {
+void HistoryWidget::invalidateComposeBackdrop(QRect innerArea) {
+	if (!Lunagram::ReferenceDesignEnabled()) {
+		return;
+	}
+	if (!innerArea.isNull() && _list) {
+		const auto edge = _scroll->y() + _scroll->height();
+		const auto top = std::max(
+			_scroll->y(),
+			edge - st::lunagramReferencePanelRadius);
+		const auto bottom = !_kbScroll->isHidden()
+			? _kbScroll->y()
+			: height();
+		const auto area = QRect(0, top, width(), bottom - top);
+		if (!innerArea.translated(_list->mapTo(this, QPoint())).intersects(area)) {
+			return;
+		}
+	}
+	++_composeBackdropRevision;
+	updateField();
+}
+
+const Lunagram::GlassBackdrop *HistoryWidget::prepareComposeBackdrop() {
+	if (!Lunagram::ReferenceDesignEnabled()
+		|| !_list
+		|| !_history
+		|| _scroll->isHidden()
+		|| _firstLoadRequest
+		|| !_historyInited
+		|| isSearching()
+		|| hasPendingResizedItems()
+		|| _list->theme()->background().giftId) {
+		Lunagram::ClearGlassBackdrop(this);
+		return nullptr;
+	}
+	const auto edge = _scroll->y() + _scroll->height();
+	const auto bottom = !_kbScroll->isHidden() ? _kbScroll->y() : height();
+	if (edge >= bottom) {
+		Lunagram::ClearGlassBackdrop(this);
+		return nullptr;
+	}
+	const auto top = std::max(
+		_scroll->y(),
+		edge - st::lunagramReferencePanelRadius);
+	const auto area = QRect(0, top, width(), bottom - top);
+	return &Lunagram::PrepareGlassBackdrop(
+		this,
+		area,
+		_composeBackdropRevision,
+		[=](Painter &p, QRect clip) { paintComposeBackdrop(p, clip); },
+		_list->theme());
+}
+
+void HistoryWidget::paintComposeBackdrop(Painter &p, QRect clip) {
+	const auto list = _list;
+	if (!list || clip.isEmpty()) {
+		return;
+	}
+	Lunagram::PaintReferenceBackdrop(
+		p,
+		controller(),
+		list->theme(),
+		this,
+		clip);
+	const auto origin = list->mapTo(this, QPoint());
+	p.save();
+	p.translate(origin);
+	list->paintBackdrop(p, clip.translated(-origin));
+	p.restore();
+}
+
+void HistoryWidget::drawField(
+		Painter &p,
+		const QRect &rect,
+		const Lunagram::GlassBackdrop *backdrop) {
 	_repaintFieldScheduled = false;
 
 	auto backy = _field->y() - st::historySendPadding;
@@ -11382,7 +11462,8 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 			Lunagram::ComposerFieldPanel(field, _send->geometry()),
 			&session(),
 			controller(),
-			this);
+			this,
+			backdrop);
 		for (const auto button : std::array<QWidget*, 5>{
 			_botMenu.button.get(),
 			_attachToggle.data(),
@@ -11396,7 +11477,8 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 					Lunagram::ComposerButtonPanel(button->geometry()),
 					&session(),
 					controller(),
-					this);
+					this,
+					backdrop);
 			}
 		}
 		if (backy < _field->y() - st::historySendPadding) {
@@ -11410,7 +11492,8 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 					-inset),
 				&session(),
 				controller(),
-				this);
+				this,
+				backdrop);
 		}
 	} else {
 		Lunagram::PaintComposerBackground(
@@ -11419,7 +11502,8 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 			&session(),
 			!Lunagram::ReferenceDesignEnabled(),
 			controller(),
-			this);
+			this,
+			backdrop);
 	}
 
 	const auto media = (!_previewDrawPreview && drawMsgText)
@@ -11692,6 +11776,7 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 	if (hasPendingResizedItems()) {
 		updateListSize();
 	}
+	const auto backdrop = prepareComposeBackdrop();
 
 	Lunagram::PaintReferenceBackdrop(
 		controller(),
@@ -11701,6 +11786,15 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 
 	Painter p(this);
 	const auto clip = e->rect();
+	if (backdrop) {
+		const auto edge = _scroll->y() + _scroll->height();
+		const auto bottom = !_kbScroll->isHidden() ? _kbScroll->y() : height();
+		const auto strip = QRect(0, edge, width(), bottom - edge);
+		p.save();
+		p.setClipRect(clip.intersected(strip), Qt::IntersectClip);
+		paintComposeBackdrop(p, clip.intersected(strip));
+		p.restore();
+	}
 	if (Lunagram::ReferenceDesignEnabled()) {
 		for (const auto button : {
 			_botStart.data(),
@@ -11716,7 +11810,8 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 					&session(),
 					false,
 					controller(),
-					this);
+					this,
+					backdrop);
 				break;
 			}
 		}
@@ -11730,7 +11825,8 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 					Lunagram::ComposerButtonPanel(button->geometry()),
 					&session(),
 					controller(),
-					this);
+					this,
+					backdrop);
 			}
 		}
 	}
@@ -11743,7 +11839,7 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 			|| _kbShown
 			|| _suggestOptions) {
 			if (!isSearching()) {
-				drawField(p, clip);
+					drawField(p, clip, backdrop);
 			}
 		}
 	} else {

@@ -625,6 +625,10 @@ bool Gif::hideMessageText() const {
 
 void Gif::draw(Painter &p, const PaintContext &context) const {
 	if (width() < st::msgPadding.left() + st::msgPadding.right() + 1) return;
+	if (context.backdrop
+		&& (!_dataMedia || (_videoCover && !_videoCoverMedia))) {
+		return;
+	}
 
 	_smallGroupPart = false;
 
@@ -690,12 +694,14 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 		&& !_seeking
 		&& !fullHiddenBySpoiler;
 	const auto shouldBePlaying = !autoplayUnderCursor() || underCursor(true);
-	if (!shouldBePlaying && _videoTimestamp != 0) {
-		const_cast<Gif*>(this)->stopAnimation();
-	} else if (canStartPlay) {
-		const_cast<Gif*>(this)->playAnimation(true);
-	} else {
-		checkStreamedIsStarted();
+	if (!context.backdrop) {
+		if (!shouldBePlaying && _videoTimestamp != 0) {
+			const_cast<Gif*>(this)->stopAnimation();
+		} else if (canStartPlay) {
+			const_cast<Gif*>(this)->playAnimation(true);
+		} else {
+			checkStreamedIsStarted();
+		}
 	}
 	const auto streamingMode = _streamed || activeRoundPlaying || autoplay;
 	const auto activeOwnPlaying = activeOwnStreamed();
@@ -712,7 +718,8 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 		? &_streamed->instance
 		: nullptr;
 
-	if (displayLoading
+	if (!context.backdrop
+		&& displayLoading
 		&& (!streamedForWaiting
 			|| item->isSending()
 			|| _data->uploading()
@@ -722,7 +729,9 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 			_animation->radial.start(dataProgress());
 		}
 	}
-	updateStatusText();
+	if (!context.backdrop) {
+		updateStatusText();
+	}
 	const auto radial = isRadialAnimation()
 		|| (streamedForWaiting && streamedForWaiting->waitingShown());
 
@@ -737,10 +746,10 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 		&& (shouldBePlaying || !_videoCover)
 		&& (activeRoundPlaying || !_seeking);
 	if (drawStreamed && !skipDrawingContent && !fullHiddenBySpoiler) {
-		if (!_seekLastFrame.isNull()) {
+		if (!context.backdrop && !_seekLastFrame.isNull()) {
 			_seekLastFrame = QImage();
 		}
-		auto paused = context.paused || !shouldBePlaying;
+		auto paused = context.paused || context.backdrop || !shouldBePlaying;
 		auto request = ::Media::Streaming::FrameRequest{
 			.outer = (ScaledInstantViewMediaSize(
 				QSize(usew, painth),
@@ -749,7 +758,7 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 			.blurredBackground = true,
 		};
 		if (isRound) {
-			if (activeRoundStreamed()) {
+			if (!context.backdrop && activeRoundStreamed()) {
 				paused = false;
 			} else {
 				displayMute = true;
@@ -759,7 +768,15 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 		} else {
 			request.rounding = MediaRoundingMask(rounding);
 		}
-		if (!activeRoundPlaying && activeOwnPlaying->instance.playerLocked()) {
+		if (context.backdrop) {
+			const auto &frozen = activeOwnPlaying
+				? activeOwnPlaying->frozenFrame
+				: _seekLastFrame;
+			p.drawImage(rthumb, frozen.isNull()
+				? streamed->frame(request)
+				: frozen);
+		} else if (!activeRoundPlaying
+			&& activeOwnPlaying->instance.playerLocked()) {
 			if (activeOwnPlaying->frozenFrame.isNull()) {
 				activeOwnPlaying->frozenRequest = request;
 				activeOwnPlaying->frozenFrame = streamed->frame(request);
@@ -778,10 +795,10 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 
 			const auto frame = streamed->frameWithInfo(request);
 			p.drawImage(rthumb, frame.image);
-			if (_seeking) {
+			if (!context.backdrop && _seeking) {
 				_seekLastFrame = frame.image;
 			}
-			if (!paused) {
+			if (!context.backdrop && !paused) {
 				streamed->markFrameShown();
 			}
 		}
@@ -791,7 +808,14 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 		p.drawImage(rthumb, _seekLastFrame);
 	} else if (!skipDrawingContent && !fullHiddenBySpoiler) {
 		ensureDataMediaCreated();
-		validateThumbCache({ usew, painth }, isRound, rounding);
+		const auto cachedNormal = _videoCoverMedia
+			? _videoCoverMedia->image(Data::PhotoSize::Large)
+			: _dataMedia->goodThumbnail()
+			? _dataMedia->goodThumbnail()
+			: _dataMedia->thumbnail();
+		if (!context.backdrop || cachedNormal) {
+			validateThumbCache({ usew, painth }, isRound, rounding);
+		}
 		p.drawImage(rthumb, _thumbCache);
 	}
 	if (isRound) {
@@ -1777,6 +1801,10 @@ void Gif::drawGrouped(
 		float64 highlightOpacity,
 		not_null<uint64*> cacheKey,
 		not_null<QPixmap*> cache) const {
+	if (context.backdrop
+		&& (!_dataMedia || (_videoCover && !_videoCoverMedia))) {
+		return;
+	}
 	ensureDataMediaCreated();
 	const auto item = _parent->data();
 	const auto loaded = dataLoaded();
@@ -1800,12 +1828,14 @@ void Gif::drawGrouped(
 		&& !fullHiddenBySpoiler;
 	const auto shouldBePlaying = !autoplayUnderCursor()
 		|| underCursor(!_smallGroupPart);
-	if (!shouldBePlaying && _videoTimestamp != 0) {
-		const_cast<Gif*>(this)->stopAnimation();
-	} else if (canStartPlay) {
-		const_cast<Gif*>(this)->playAnimation(true);
-	} else {
-		checkStreamedIsStarted();
+	if (!context.backdrop) {
+		if (!shouldBePlaying && _videoTimestamp != 0) {
+			const_cast<Gif*>(this)->stopAnimation();
+		} else if (canStartPlay) {
+			const_cast<Gif*>(this)->playAnimation(true);
+		} else {
+			checkStreamedIsStarted();
+		}
 	}
 
 	const auto streamingMode = _streamed || autoplay;
@@ -1818,7 +1848,8 @@ void Gif::drawGrouped(
 		? &_streamed->instance
 		: nullptr;
 
-	if (displayLoading
+	if (!context.backdrop
+		&& displayLoading
 		&& (!streamedForWaiting
 			|| item->isSending()
 			|| _data->uploading()
@@ -1828,7 +1859,9 @@ void Gif::drawGrouped(
 			_animation->radial.start(dataProgress());
 		}
 	}
-	updateStatusText();
+	if (!context.backdrop) {
+		updateStatusText();
+	}
 	const auto radial = isRadialAnimation()
 		|| (streamedForWaiting && streamedForWaiting->waitingShown());
 
@@ -1848,7 +1881,12 @@ void Gif::drawGrouped(
 			.outer = scaled * ratio,
 			.rounding = MediaRoundingMask(rounding),
 		};
-		if (activeOwnPlaying->instance.playerLocked()) {
+		if (context.backdrop) {
+			const auto &frozen = activeOwnPlaying->frozenFrame;
+			p.drawImage(geometry, frozen.isNull()
+				? streamed->frame(request)
+				: frozen);
+		} else if (activeOwnPlaying->instance.playerLocked()) {
 			if (activeOwnPlaying->frozenFrame.isNull()) {
 				activeOwnPlaying->frozenRequest = request;
 				activeOwnPlaying->frozenFrame = streamed->frame(request);
@@ -1866,7 +1904,7 @@ void Gif::drawGrouped(
 			p.drawImage(geometry, streamed->frame(request));
 			const auto paused = context.paused
 				|| (autoplayUnderCursor() && !underCursor(!_smallGroupPart));
-			if (!paused) {
+			if (!context.backdrop && !paused) {
 				streamed->markFrameShown();
 			}
 		}

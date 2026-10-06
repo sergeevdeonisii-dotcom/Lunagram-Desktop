@@ -377,10 +377,14 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 		return;
 	} else if (_storyId && _data->isNull()) {
 		return;
+	} else if (context.backdrop && !_dataMedia) {
+		return;
 	}
 
 	ensureDataMediaCreated();
-	_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
+	if (!context.backdrop) {
+		_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
+	}
 	const auto st = context.st;
 	const auto sti = context.imageStyle();
 	const auto preview = _data->extendedMediaPreview();
@@ -392,7 +396,7 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 	auto paintx = 0, painty = 0, paintw = width(), painth = height();
 	auto bubble = _parent->hasBubble();
 
-	if (displayLoading) {
+	if (!context.backdrop && displayLoading) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(_dataMedia->progress());
@@ -724,6 +728,13 @@ void Photo::paintUserpicFrame(
 	Painter &p,
 	const PaintContext &context,
 	QPoint photoPosition) const {
+	if (context.backdrop) {
+		const auto size = QSize(width(), height());
+		const auto forum = _parent->data()->history()->isForum();
+		validateUserpicImageCache(size, forum);
+		p.drawImage(QRect(photoPosition, size), _imageCache);
+		return;
+	}
 	paintUserpicFrame(p, photoPosition, !context.paused);
 
 	if (_data->videoCanBePlayed() && !_streamed) {
@@ -855,8 +866,13 @@ void Photo::drawGrouped(
 		float64 highlightOpacity,
 		not_null<uint64*> cacheKey,
 		not_null<QPixmap*> cache) const {
+	if (context.backdrop && !_dataMedia) {
+		return;
+	}
 	ensureDataMediaCreated();
-	_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
+	if (!context.backdrop) {
+		_dataMedia->automaticLoad(_realParent->fullId(), _parent->data());
+	}
 
 	const auto st = context.st;
 	const auto sti = context.imageStyle();
@@ -864,7 +880,7 @@ void Photo::drawGrouped(
 	const auto loaded = preview || _dataMedia->loaded();
 	const auto displayLoading = !preview && _data->displayLoading();
 
-	if (displayLoading) {
+	if (!context.backdrop && displayLoading) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(_dataMedia->progress());

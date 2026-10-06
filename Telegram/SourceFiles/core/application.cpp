@@ -42,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "lunagram/chat_vault.h"
+#include "lunagram/design.h"
 #include "apiwrap.h"
 #include "api/api_updates.h"
 #include "calls/calls_instance.h"
@@ -312,7 +313,8 @@ void Application::run() {
 
 	startLocalStorage();
 
-	style::SetCustomFont(settings().customFontFamily());
+	style::SetCustomFont(Lunagram::ReferenceFontFamily(
+		settings().customFontFamily()));
 	style::internal::StartFonts();
 
 	Test::ApplyStartupOverrides();

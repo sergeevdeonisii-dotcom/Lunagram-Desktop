@@ -136,6 +136,14 @@ bool Dice::updateItemData() {
 }
 
 void Dice::draw(Painter &p, const PaintContext &context, const QRect &r) {
+	if (context.backdrop) {
+		if (_drawingEnd && _end) {
+			_end->draw(p, context, r);
+		} else if (_start) {
+			_start->draw(p, context, r);
+		}
+		return;
+	}
 	if (!_start) {
 		if (const auto document = Lookup(_parent, _dice->emoji(), 0)) {
 			const auto skipPremiumEffect = false;

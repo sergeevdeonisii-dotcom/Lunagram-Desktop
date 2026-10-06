@@ -245,14 +245,22 @@ void PaintComposerPanel(
 		QRect bounds,
 		not_null<Main::Session*> session,
 		Window::SessionController *controller,
-		QWidget *widget) {
+		QWidget *widget,
+		const GlassBackdrop *backdrop) {
 	if (bounds.isEmpty()) {
 		return;
 	}
 	const auto radius = std::min(
 		st::lunagramReferencePanelRadius,
 		bounds.height() / 2);
-	if (controller && widget && &controller->session() == session.get()) {
+	if (backdrop) {
+		PaintGlassPanel(
+			p,
+			bounds,
+			st::historyComposeAreaBg->c,
+			*backdrop,
+			radius);
+	} else if (controller && widget && &controller->session() == session.get()) {
 		PaintGlassPanel(
 			controller,
 			controller->currentChatTheme(),
@@ -272,11 +280,12 @@ void PaintComposerBackground(
 		not_null<Main::Session*> session,
 		bool fillBackground,
 		Window::SessionController *controller,
-		QWidget *widget) {
+		QWidget *widget,
+		const GlassBackdrop *backdrop) {
 	if (ReferenceDesignEnabled()) {
 		const auto padding = st::historySendPadding;
 		const auto panel = bounds.adjusted(padding, padding, -padding, -padding);
-		PaintComposerPanel(p, panel, session, controller, widget);
+		PaintComposerPanel(p, panel, session, controller, widget, backdrop);
 		return;
 	}
 	if (fillBackground) {

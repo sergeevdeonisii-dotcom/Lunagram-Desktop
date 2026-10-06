@@ -34,9 +34,9 @@ enum {
 
 inline const char *cGUIDStr() {
 #ifndef OS_MAC_STORE
-	static const char *gGuidStr = "{87A94AB0-E370-4cde-98D3-ACC110C5967D}";
+	static const char *gGuidStr = "{9EB9C471-8BD4-48C4-8A8C-5D99B60EF491}";
 #else // OS_MAC_STORE
-	static const char *gGuidStr = "{E51FB841-8C0B-4EF9-9E9E-5A0078567627}";
+	static const char *gGuidStr = "{3D7B3FC2-ABAC-4527-9E1F-B9461D81E1D1}";
 #endif // OS_MAC_STORE
 
 	return gGuidStr;

@@ -1,9 +1,9 @@
-#define MyAppShortName "Telegram"
-#define MyAppName "Telegram Desktop"
-#define MyAppPublisher "Telegram FZ-LLC"
-#define MyAppURL "https://desktop.telegram.org"
-#define MyAppExeName "Telegram.exe"
-#define MyAppId "53F49750-6209-4FBF-9CA8-7A333C87D1ED"
+#define MyAppShortName "Lunagram"
+#define MyAppName "Lunagram"
+#define MyAppPublisher "Lunagram Contributors"
+#define MyAppURL "https://github.com/sergeevdeonisii-dotcom/Lunagram-Desktop"
+#define MyAppExeName "Lunagram.exe"
+#define MyAppId "22D63AD7-0065-4095-92A3-46F85A1C35C1"
 #define CurrentYear GetDateTimeString('yyyy','','')
 
 [Setup]
@@ -24,7 +24,7 @@ AllowNoIcons=yes
 OutputDir={#ReleasePath}
 SetupIconFile={#SourcePath}..\Resources\art\icon256.ico
 UninstallDisplayName={#MyAppName}
-UninstallDisplayIcon={app}\Telegram.exe
+UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
 SolidCompression=yes
 DisableStartupPrompt=yes
@@ -38,11 +38,11 @@ SignTool=sha256
 
 #ifndef MyOutputBaseFilename
   #if MyBuildTarget == "winarm"
-    #define MyOutputBaseFilename "tsetup-arm64." + MyAppVersionFull
+    #define MyOutputBaseFilename "lunagram-setup-arm64." + MyAppVersionFull
   #elif MyBuildTarget == "win64"
-    #define MyOutputBaseFilename "tsetup-x64." + MyAppVersionFull
+    #define MyOutputBaseFilename "lunagram-setup-x64." + MyAppVersionFull
   #else
-    #define MyOutputBaseFilename "tsetup." + MyAppVersionFull
+    #define MyOutputBaseFilename "lunagram-setup." + MyAppVersionFull
   #endif
 #endif
 OutputBaseFilename={#MyOutputBaseFilename}
@@ -78,8 +78,9 @@ Name: "ua";      MessagesFile: "compiler:Languages\Ukrainian.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "{#ReleasePath}\Telegram.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#ReleasePath}\Updater.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#ReleasePath}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourcePath}..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourcePath}..\..\LEGAL"; DestDir: "{app}"; Flags: ignoreversion
 #if MyBuildTarget != "winarm"
 Source: "{#ReleasePath}\{#ModulesFolder}\d3d\d3dcompiler_47.dll"; DestDir: "{app}\{#ModulesFolder}\d3d"; Flags: ignoreversion
 #endif

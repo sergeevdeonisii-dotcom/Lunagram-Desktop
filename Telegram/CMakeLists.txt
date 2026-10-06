@@ -62,6 +62,11 @@ endif()
 
 set_target_properties(Telegram PROPERTIES AUTOMOC ON)
 
+if (WIN32)
+    set_target_properties(Telegram PROPERTIES OUTPUT_NAME Lunagram)
+    target_link_libraries(Telegram PRIVATE Crypt32)
+endif()
+
 target_link_libraries(Telegram
 PRIVATE
     tdesktop::lib_fido2

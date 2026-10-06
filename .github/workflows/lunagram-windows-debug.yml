@@ -1,0 +1,179 @@
+name: Lunagram Windows Debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      prepare_only:
+        description: Prepare and cache native dependencies without compiling Lunagram
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lunagram-windows-debug-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-debug:
+    name: Native Windows x64 Debug
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      TDESKTOP_API_ID: ${{ secrets.TDESKTOP_API_ID }}
+      TDESKTOP_API_HASH: ${{ secrets.TDESKTOP_API_HASH }}
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      GIT_AUTHOR_NAME: Lunagram Build
+      GIT_AUTHOR_EMAIL: build@lunagram.invalid
+      GIT_COMMITTER_NAME: Lunagram Build
+      GIT_COMMITTER_EMAIL: build@lunagram.invalid
+      LUNAGRAM_BUILD_ROOT: ${{ github.workspace }}\TBuild
+      LUNAGRAM_SOURCE_ROOT: ${{ github.workspace }}\TBuild\Lunagram-Desktop
+      LUNAGRAM_DIAGNOSTICS: ${{ github.workspace }}\TBuild\diagnostics
+      LUNAGRAM_PACKAGE_ROOT: ${{ github.workspace }}\TBuild\package
+
+    steps:
+      - name: Check application credentials and create build layout
+        run: |
+          if ($env:TDESKTOP_API_ID -notmatch '^[1-9][0-9]*$' -or $env:TDESKTOP_API_ID -eq '17349') {
+            throw 'Add app-owned TDESKTOP_API_ID and TDESKTOP_API_HASH repository secrets.'
+          }
+          if ($env:TDESKTOP_API_HASH -notmatch '^[a-fA-F0-9]{32}$') {
+            throw 'TDESKTOP_API_HASH must be an app-owned 32-character hexadecimal secret.'
+          }
+          $buildRoot = Join-Path $env:USERPROFILE 'TBuild'
+          New-Item -ItemType Directory -Force -Path "$buildRoot\Libraries\win64", "$buildRoot\ThirdParty" | Out-Null
+          New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE\TBuild" -Target $buildRoot | Out-Null
+
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+          path: TBuild/Lunagram-Desktop
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.10'
+
+      - name: Initialize x64 MSVC 14.44 and Windows SDK
+        uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
+        with:
+          arch: x64
+          sdk: '10.0.26100.0'
+          toolset: '14.44'
+
+      - name: Record toolchain and dependency cache key
+        run: |
+          & "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Diagnostics
+          $prepareHash = (Get-FileHash "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\prepare\prepare.py" -Algorithm SHA256).Hash
+          $qtHash = (Get-FileHash "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\qt_version.py" -Algorithm SHA256).Hash
+          "LUNAGRAM_CACHE_KEY=win-x64-msvc1444-sdk26100-qt6-debug-v1-$prepareHash-$qtHash" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Check build-helper path preservation
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.tests.ps1"'
+
+      - name: Restore build tools
+        id: tools-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ env.LUNAGRAM_BUILD_ROOT }}\ThirdParty
+          key: tools-${{ env.LUNAGRAM_CACHE_KEY }}
+
+      - name: Restore native libraries
+        id: libraries-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\*
+            !${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\[qQ]t[_-]*
+            !${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\cache_keys\[qQ]t[_-]*
+          key: libraries-${{ env.LUNAGRAM_CACHE_KEY }}
+
+      - name: Restore Qt 6
+        id: qt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\[qQ]t[_-]*
+            ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\cache_keys\[qQ]t[_-]*
+          key: qt-${{ env.LUNAGRAM_CACHE_KEY }}
+
+      - name: Prepare Debug-only dependencies
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Prepare'
+
+      - name: Trim intermediate dependency files
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Prune'
+
+      - name: Save build tools
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ env.LUNAGRAM_BUILD_ROOT }}\ThirdParty
+          key: tools-${{ env.LUNAGRAM_CACHE_KEY }}
+
+      - name: Save native libraries
+        if: steps.libraries-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\*
+            !${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\[qQ]t[_-]*
+            !${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\cache_keys\[qQ]t[_-]*
+          key: libraries-${{ env.LUNAGRAM_CACHE_KEY }}
+
+      - name: Save Qt 6
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\[qQ]t[_-]*
+            ${{ env.LUNAGRAM_BUILD_ROOT }}\Libraries\win64\cache_keys\[qQ]t[_-]*
+          key: qt-${{ env.LUNAGRAM_CACHE_KEY }}
+
+      - name: Configure native Lunagram Debug
+        if: ${{ !inputs.prepare_only }}
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Configure'
+
+      - name: Compile native executable
+        if: ${{ !inputs.prepare_only }}
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Build'
+
+      - name: Check isolated native startup
+        if: ${{ !inputs.prepare_only }}
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Smoke'
+
+      - name: Package executable and license notices
+        if: ${{ !inputs.prepare_only }}
+        run: '& "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1" -Stage Package'
+
+      - name: Upload native Debug package
+        if: ${{ !inputs.prepare_only }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: Lunagram-Windows-x64-Debug-${{ github.run_number }}
+          path: ${{ env.LUNAGRAM_PACKAGE_ROOT }}\*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Capture final build diagnostics
+        if: always()
+        run: |
+          $helper = "$env:LUNAGRAM_SOURCE_ROOT\Telegram\build\lunagram\windows-debug.ps1"
+          if (Test-Path -LiteralPath $helper) { & $helper -Stage Diagnostics }
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: Lunagram-Windows-x64-Debug-Diagnostics-${{ github.run_number }}
+          path: ${{ env.LUNAGRAM_DIAGNOSTICS }}\*
+          if-no-files-found: warn
+          retention-days: 7

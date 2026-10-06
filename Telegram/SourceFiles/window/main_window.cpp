@@ -482,12 +482,6 @@ MainWindow::MainWindow(not_null<Controller*> controller)
 	}
 
 	Shortcuts::Listen(this);
-	_controller->sessionControllerChanges(
-	) | rpl::on_next([=] {
-		if (_windowChrome) {
-			_windowChrome->clearCaptionSource();
-		}
-	}, lifetime());
 }
 
 Main::Account &MainWindow::account() const {
@@ -577,6 +571,12 @@ QRect MainWindow::desktopRect() const {
 
 void MainWindow::init() {
 	initHook();
+	_controller->sessionControllerChanges(
+	) | rpl::on_next([=] {
+		if (_windowChrome) {
+			_windowChrome->clearCaptionSource();
+		}
+	}, lifetime());
 
 	updatePalette();
 
